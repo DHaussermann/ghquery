@@ -1,0 +1,3271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ghquery — PR Risk Report</title>
+    <style>
+        /* ── Reset & Base ─────────────────────────────────────── */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f5f6f8;
+            color: #1a1a2e;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Layout shell ─────────────────────────────────────── */
+        .app-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid #dde0e4;
+            background: #fff;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 28px;
+        }
+
+        .header-left { flex-shrink: 0; }
+
+        h1 {
+            color: #1a1a2e;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+            white-space: nowrap;
+        }
+        h1 span.accent { color: #4a9eff; }
+
+        .header-controls {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            flex-wrap: wrap;
+            flex: 1;
+        }
+
+        /* Row 2 sits below the action buttons. Chip on the left,
+           webhook config on the right. */
+        .app-header { flex-wrap: wrap; }
+        .header-controls-row2 {
+            display: flex;
+            flex: 0 0 100%;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-top: 4px;
+            padding-top: 4px;
+            border-top: 1px dashed #e4e6ea;
+        }
+
+        .header-control-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            /* Lock non-webhook groups vertically so the webhook-status wrapping
+               doesn't shove other controls downward. */
+            min-height: 38px;
+        }
+
+        .header-label {
+            font-size: 11px;
+            color: #666;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .header-input-days {
+            width: 60px;
+            padding: 5px 8px;
+            border: 1px solid #ccd0d5;
+            border-radius: 5px;
+            background: #fff;
+            color: #333;
+            font-size: 13px;
+        }
+        .header-input-days:focus {
+            outline: none;
+            border-color: #4a9eff;
+            box-shadow: 0 0 0 2px rgba(74,158,255,0.15);
+        }
+
+        .header-webhook {
+            flex: 1;
+            min-width: 200px;
+            flex-wrap: wrap; /* let webhook-status drop to a new line below the input */
+            align-items: center; /* keep label/input/button vertically centered on row 1 */
+            align-self: flex-start; /* the wrapping status only grows this group, not the strip */
+        }
+
+        .header-input-webhook {
+            width: 260px;            /* fixed width so Test button stays on the same line */
+            min-width: 0;
+            flex-shrink: 1;
+            padding: 5px 8px;
+            border: 1px solid #ccd0d5;
+            border-radius: 5px;
+            background: #fff;
+            color: #333;
+            font-size: 12px;
+        }
+        /* Prevent display:inline-flex from overriding the hidden attribute
+           on browsers that don't use !important in their UA stylesheet. */
+        .header-controls .btn-run[hidden]           { display: none !important; }
+        .header-controls .btn-cancel[hidden]        { display: none !important; }
+        .header-controls .btn-send-webhook[hidden]  { display: none !important; }
+        .header-controls .btn-save-query[hidden]    { display: none !important; }
+        .header-input-webhook:focus {
+            outline: none;
+            border-color: #4a9eff;
+            box-shadow: 0 0 0 2px rgba(74,158,255,0.15);
+        }
+
+        .skip-analysis-label {
+            display: flex;
+            align-items: flex-start;
+            gap: 5px;
+            font-size: 12px;
+            color: #555;
+            cursor: pointer;
+            white-space: nowrap;
+            flex-wrap: wrap;
+        }
+        .skip-analysis-label input[type="checkbox"] {
+            accent-color: #4a9eff;
+            margin-top: 2px;
+        }
+        .skip-analysis-helper {
+            display: block;
+            width: 100%;             /* forces wrap to a new line below the checkbox+text */
+            font-size: 10px;
+            color: #999;
+            padding-left: 19px;
+            margin-top: -2px;
+            line-height: 1.3;
+        }
+
+        /* All header action buttons share the same footprint */
+        .header-controls .btn-run,
+        .header-controls .btn-exit,
+        .header-controls .btn-schedule,
+        .header-controls .btn-send-webhook,
+        .header-controls .btn-cancel,
+        .header-controls .btn-save-query {
+            width: auto;
+            padding: 10px 18px;
+            font-size: 14px;
+            line-height: 1.2;
+            border-radius: 6px;
+            min-height: 38px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-cancel {
+            padding: 7px 16px;
+            border: 1px solid #e74c3c;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            background: #fff;
+            color: #e74c3c;
+            transition: all 0.2s;
+        }
+        .btn-cancel:hover {
+            background: #e74c3c;
+            color: #fff;
+        }
+
+        .btn-schedule {
+            padding: 5px 12px;
+            border: 1px solid rgba(156,39,176,0.35);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            background: rgba(156,39,176,0.08);
+            color: #7b1fa2;
+            transition: all 0.2s;
+        }
+        .btn-schedule:hover {
+            background: rgba(156,39,176,0.15);
+            border-color: rgba(156,39,176,0.5);
+        }
+        .schedule-indicator {
+            font-weight: 600;
+        }
+
+        /* ── Schedule modal additions ─────────────────────────── */
+        .schedule-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: #f5f6f8;
+            border-radius: 6px;
+            margin-bottom: 14px;
+            font-size: 13px;
+        }
+        .schedule-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ccc;
+            flex-shrink: 0;
+        }
+        .schedule-status-dot.active {
+            background: #7b1fa2;
+        }
+        .schedule-status-dot.warning {
+            background: #f39c12;
+        }
+        .schedule-status-text { font-weight: 600; }
+        .schedule-status-next { color: #666; margin-left: auto; font-size: 12px; }
+
+        .schedule-error {
+            background: #fdf0ee;
+            border-left: 3px solid #e74c3c;
+            padding: 10px 12px;
+            border-radius: 0 6px 6px 0;
+            margin-bottom: 14px;
+            font-size: 12px;
+            color: #c0392b;
+        }
+        .schedule-error strong { display: block; margin-bottom: 4px; }
+
+        .schedule-toggle-row { padding: 6px 0; margin-bottom: 14px; }
+        /* Override .modal-field label rule (which sets uppercase + small caps) */
+        .schedule-toggle-row label.schedule-toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #333;
+            line-height: 22px;
+            text-transform: none;
+            letter-spacing: 0;
+            font-weight: 500;
+            margin-bottom: 0;
+        }
+        .schedule-toggle-text {
+            display: inline-flex;
+            align-items: center;
+            height: 22px;
+            line-height: 22px;
+            text-transform: none;
+            letter-spacing: 0;
+        }
+
+        /* iOS-style slider switch (purple when on) */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 38px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+            position: absolute;
+        }
+        .toggle-switch-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #ccd0d5;
+            border-radius: 22px;
+            transition: background 0.2s;
+        }
+        .toggle-switch-slider::before {
+            content: '';
+            position: absolute;
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            top: 3px;
+            background: #fff;
+            border-radius: 50%;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            transition: transform 0.2s;
+        }
+        .toggle-switch input:checked + .toggle-switch-slider {
+            background: #7b1fa2;
+        }
+        .toggle-switch input:checked + .toggle-switch-slider::before {
+            transform: translateX(16px);
+        }
+        .toggle-switch input:focus-visible + .toggle-switch-slider {
+            box-shadow: 0 0 0 3px rgba(123,31,162,0.25);
+        }
+
+        /* Time picker (text inputs + chevrons) */
+        .time-picker {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            justify-content: flex-start;
+            margin-top: 2px;
+        }
+        .time-picker-field-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        .time-picker-field-label {
+            font-size: 10px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            font-weight: 600;
+        }
+        .time-picker-input {
+            width: 70px;
+            height: 40px;
+            padding: 6px 8px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 600;
+            color: #1a1a2e;
+            background: #fafbfc;
+            border: 1px solid #ccd0d5;
+            border-radius: 6px;
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum";
+            -moz-appearance: textfield;
+            appearance: textfield;
+        }
+        /* Hide the native number-input spinners — we have our own chevrons */
+        .time-picker-input::-webkit-outer-spin-button,
+        .time-picker-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        .time-picker-input:focus {
+            outline: none;
+            border-color: #7b1fa2;
+            box-shadow: 0 0 0 2px rgba(123,31,162,0.18);
+        }
+        .time-picker-chevron {
+            width: 70px;
+            height: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #fff;
+            border: 1px solid #dde0e4;
+            border-radius: 6px;
+            color: #7b1fa2;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.12s, border-color 0.12s, transform 0.06s;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .time-picker-chevron:hover {
+            background: #f5f6f8;
+            border-color: #c8cbd0;
+        }
+        .time-picker-chevron:active {
+            background: rgba(123,31,162,0.08);
+            transform: translateY(1px);
+        }
+        .time-picker-chevron:focus-visible {
+            outline: none;
+            border-color: #7b1fa2;
+            box-shadow: 0 0 0 2px rgba(123,31,162,0.2);
+        }
+        .time-picker-colon {
+            font-size: 22px;
+            font-weight: 700;
+            color: #1a1a2e;
+            /* Align colon with the center of the input box. The label sits above
+               (~14px) plus the chevron above (~22px) plus chevron-input gap (~4px),
+               so push the colon down to roughly the input's vertical midline. */
+            padding-top: 50px;
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+        }
+
+        .schedule-form-body.disabled {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .schedule-helper {
+            font-size: 11px;
+            color: #666;
+            line-height: 1.5;
+            margin-top: 4px;
+        }
+        .schedule-helper code {
+            background: #f0f1f4;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 10px;
+        }
+
+        .schedule-actions { display: flex; align-items: center; }
+        .schedule-actions-spacer { flex: 1; }
+        .btn-modal-disable {
+            padding: 8px 16px;
+            border: 1px solid #e74c3c;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            background: #fff;
+            color: #e74c3c;
+        }
+        .btn-modal-disable:hover {
+            background: #e74c3c;
+            color: #fff;
+        }
+
+        /* ── Schedule modal ───────────────────────────────────── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.3);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+
+        .modal {
+            background: #fff;
+            border: 1px solid #dde0e4;
+            border-radius: 10px;
+            padding: 24px;
+            min-width: 400px;
+            max-width: 480px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        }
+
+        .modal h2 {
+            margin: 0 0 16px;
+            font-size: 16px;
+            color: #1a1a2e;
+            text-transform: none;
+            letter-spacing: 0;
+        }
+
+        .modal-field {
+            margin-bottom: 14px;
+        }
+
+        .modal-field label {
+            display: block;
+            font-size: 11px;
+            color: #666;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .modal-field select,
+        .modal-field input {
+            width: 100%;
+            padding: 7px 10px;
+            border: 1px solid #ccd0d5;
+            border-radius: 6px;
+            background: #fff;
+            color: #333;
+            font-size: 13px;
+        }
+        .modal-field select:focus,
+        .modal-field input:focus {
+            outline: none;
+            border-color: #4a9eff;
+        }
+
+        .modal-days-row {
+            display: flex;
+            gap: 10px;
+        }
+        .modal-days-row .modal-field { flex: 1; }
+
+        .modal-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        .btn-modal-save {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #9c27b0, #7b1fa2);
+            color: #fff;
+        }
+        .btn-modal-save:hover { background: linear-gradient(135deg, #ab47bc, #9c27b0); }
+
+        .btn-modal-cancel {
+            padding: 8px 20px;
+            border: 1px solid #ccd0d5;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            background: none;
+            color: #555;
+        }
+        .btn-modal-cancel:hover { background: #f0f1f4; }
+
+        .app-body {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ── Sidebar ──────────────────────────────────────────── */
+        .sidebar {
+            width: 280px;
+            min-width: 280px;
+            background: #f0f1f4;
+            border-right: 1px solid #dde0e4;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #ccc transparent;
+        }
+
+        .sidebar-section {
+            padding: 12px 16px;
+            border-bottom: 1px solid #dde0e4;
+        }
+
+        /* Collapsible single-PR section */
+        .single-pr-section {
+            padding: 0;
+            border-bottom: 1px solid #dde0e4;
+        }
+        .single-pr-section summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: #666;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            user-select: none;
+        }
+        .single-pr-section summary::-webkit-details-marker { display: none; }
+        .single-pr-section summary::before {
+            content: '▸';
+            font-size: 9px;
+            color: #999;
+            transition: transform 0.15s ease;
+        }
+        .single-pr-section[open] summary::before {
+            transform: rotate(90deg);
+        }
+        .single-pr-section[open] summary {
+            color: #2c5282;
+            background: #f0f7ff;
+        }
+        .single-pr-body {
+            padding: 4px 16px 14px;
+            background: #f0f7ff;
+        }
+        .single-pr-body label {
+            font-size: 10px;
+            color: #666;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .single-pr-body input[type="text"] {
+            width: 100%;
+            padding: 7px 10px;
+            font-size: 12px;
+            border: 1px solid #ccd0d5;
+            border-radius: 4px;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+        .single-pr-body input[type="text"]:focus {
+            outline: none;
+            border-color: #4a9eff;
+            box-shadow: 0 0 0 2px rgba(74,158,255,0.15);
+        }
+        .single-pr-hint {
+            font-size: 10px;
+            color: #777;
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+        .single-pr-active-banner {
+            margin-top: 8px;
+            padding: 6px 8px;
+            font-size: 10.5px;
+            background: #fff8d6;
+            border: 1px solid #f0d878;
+            border-radius: 3px;
+            color: #6d5400;
+            display: none;
+        }
+        .single-pr-active-banner.visible { display: block; }
+
+        .sidebar-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .sidebar-section-header h3 {
+            font-size: 11px;
+            color: #666;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .sidebar-section-header .section-count {
+            font-size: 10px;
+            color: #999;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .sidebar-section-actions {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        .sel-action {
+            background: none;
+            border: 1px solid #ccd0d5;
+            color: #666;
+            font-size: 10px;
+            padding: 2px 7px;
+            border-radius: 4px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .sel-action:hover { color: #333; border-color: #999; }
+
+        /* ── Checkbox lists ────────────────────────────────────── */
+        .checkbox-list {
+            max-height: 180px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #ccc transparent;
+            border: 1px solid #dde0e4;
+            border-radius: 6px;
+            background: #fff;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 5px 10px;
+            cursor: pointer;
+            transition: background 0.12s;
+            border-bottom: 1px solid #f0f1f4;
+            user-select: none;
+        }
+        .checkbox-item:last-child { border-bottom: none; }
+        .checkbox-item:hover { background: rgba(74,158,255,0.06); }
+
+        .checkbox-item input[type="checkbox"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border: 1px solid #bbb;
+            border-radius: 3px;
+            background: #fff;
+            cursor: pointer;
+            flex-shrink: 0;
+            position: relative;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .checkbox-item input[type="checkbox"]:checked {
+            background: #4a9eff;
+            border-color: #4a9eff;
+        }
+
+        .checkbox-item input[type="checkbox"]:checked::after {
+            content: '';
+            position: absolute;
+            left: 4px;
+            top: 1px;
+            width: 4px;
+            height: 8px;
+            border: solid #fff;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .checkbox-item label {
+            margin-left: 8px;
+            font-size: 12px;
+            color: #333;
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+        }
+
+        .checkbox-item .team-member-count {
+            font-size: 10px;
+            color: #999;
+            margin-left: auto;
+            flex-shrink: 0;
+            padding-left: 6px;
+        }
+
+        /* ── Mode toggle (plain radios, matches other checkbox UX) ── */
+        .mode-toggle {
+            display: inline-flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .mode-toggle label {
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 13px;
+            color: #333;
+        }
+        .mode-toggle input[type="radio"] {
+            margin: 0;
+            cursor: pointer;
+        }
+
+        /* ── Sidebar inputs ───────────────────────────────────── */
+        .sidebar-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .sidebar-input-group label {
+            font-size: 11px;
+            color: #666;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .sidebar-input-group input {
+            padding: 7px 10px;
+            border: 1px solid #ccd0d5;
+            border-radius: 6px;
+            background: #fff;
+            color: #333;
+            font-size: 13px;
+            width: 100%;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .sidebar-input-group input:focus {
+            outline: none;
+            border-color: #4a9eff;
+            box-shadow: 0 0 0 2px rgba(74,158,255,0.15);
+        }
+
+        .webhook-row {
+            display: flex;
+            gap: 6px;
+            align-items: stretch;
+        }
+
+        .webhook-row input {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .webhook-status {
+            flex-basis: 100%; /* force a new line below input/button — input keeps its width */
+            font-size: 11px;
+            margin: 2px 0 0;
+            line-height: 1.3;
+            word-break: break-word;
+        }
+        .webhook-ok { color: #2ecc71; }
+        .webhook-fail { color: #e74c3c; }
+
+        /* ── Sidebar buttons ──────────────────────────────────── */
+        .sidebar-actions {
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            border-bottom: 1px solid #dde0e4;
+        }
+
+        .btn-send-webhook {
+            background: #2e7d32;
+            color: #fff;
+            border: 1px solid #2e7d32;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.15s, border-color 0.15s;
+            /* Lock width so Sending.../Sent states don't shrink the button.
+               Sized to fit the longest label ("Send to Hook"). */
+            min-width: 120px;
+            text-align: center;
+        }
+        .btn-send-webhook:hover:not(:disabled) {
+            background: #1b5e20;
+            border-color: #1b5e20;
+        }
+        .btn-send-webhook:disabled {
+            background: #a5d6a7;
+            border-color: #a5d6a7;
+            cursor: not-allowed;
+        }
+        .btn-send-webhook.is-sent {
+            background: #888;
+            border-color: #888;
+        }
+
+        .results-actions {
+            display: flex;
+            justify-content: flex-start;
+            padding: 8px 0 12px;
+        }
+        /* The hidden attribute is overridden by display:flex above unless we restore it */
+        .results-actions[hidden] {
+            display: none;
+        }
+
+        .btn-save-query {
+            background: #5e35b1;
+            color: #fff;
+            border: 1px solid #5e35b1;
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .btn-save-query:hover:not(:disabled) {
+            background: #4527a0;
+            border-color: #4527a0;
+        }
+        .btn-save-query:disabled {
+            background: #b39ddb;
+            border-color: #b39ddb;
+            cursor: not-allowed;
+        }
+        .btn-save-query.is-saved {
+            background: #888;
+            border-color: #888;
+        }
+
+        .btn-run {
+            width: 100%;
+            padding: 10px 18px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+            letter-spacing: 0.2px;
+            background: linear-gradient(135deg, #4a9eff, #357ae8);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(74,158,255,0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-run:disabled {
+            background: #bbb;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+        .btn-run:hover:not(:disabled) {
+            background: linear-gradient(135deg, #5aadff, #4a9eff);
+            box-shadow: 0 4px 14px rgba(74,158,255,0.4);
+            transform: translateY(-1px);
+        }
+        .btn-run.is-running {
+            background: linear-gradient(135deg, #aaa, #bbb);
+        }
+        .btn-run.is-running::after {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer {
+            100% { left: 100%; }
+        }
+
+        .btn-test {
+            width: auto;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            transition: all 0.2s;
+            background: #fff;
+            color: #555;
+            border: 1px solid #ccd0d5;
+            white-space: nowrap;
+        }
+        .btn-test:hover { background: #f0f1f4; color: #333; }
+
+        .sidebar-footer {
+            padding: 12px 16px;
+            margin-top: auto;
+        }
+
+        .btn-exit {
+            width: 100%;
+            padding: 7px 12px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.2s;
+            background: rgba(231,76,60,0.1);
+            color: #c0392b;
+        }
+        .btn-exit:hover { background: rgba(231,76,60,0.9); color: #fff; }
+
+        /* ── Disabled state while running ─────────────────────── */
+        .sidebar.running .checkbox-item input[type="checkbox"],
+        .sidebar.running .sel-action {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        body.running .header-controls .mode-toggle,
+        body.running .header-controls .header-input-days,
+        body.running .header-controls .skip-analysis-label,
+        body.running .header-controls .btn-exit,
+        body.running .header-controls .btn-schedule,
+        body.running .header-controls-row2 .header-input-webhook,
+        body.running .header-controls-row2 .btn-test {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        /* ── Main content ─────────────────────────────────────── */
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 24px;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        /* ── Active filter pills ──────────────────────────────── */
+        .active-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 16px;
+            min-height: 0;
+        }
+        .active-filters:empty { display: none; }
+
+        .filter-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(74,158,255,0.1);
+            border: 1px solid rgba(74,158,255,0.3);
+            color: #2979cc;
+            font-size: 11px;
+            padding: 3px 8px 3px 10px;
+            border-radius: 12px;
+            cursor: default;
+            white-space: nowrap;
+        }
+        .filter-pill.pill-team {
+            background: rgba(156,39,176,0.08);
+            border-color: rgba(156,39,176,0.3);
+            color: #7b1fa2;
+        }
+        .filter-pill.pill-repo {
+            background: rgba(46,204,113,0.08);
+            border-color: rgba(46,204,113,0.3);
+            color: #2e7d32;
+        }
+
+        .filter-pill .pill-remove {
+            background: none;
+            border: none;
+            color: inherit;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+            padding: 0 2px;
+            opacity: 0.6;
+            transition: opacity 0.15s;
+        }
+        .filter-pill .pill-remove:hover { opacity: 1; }
+
+        /* ── Progress bar ─────────────────────────────────────── */
+        .progress-bar {
+            height: 3px;
+            background: #e0e2e6;
+            border-radius: 2px;
+            margin-bottom: 16px;
+            overflow: hidden;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .progress-bar.active {
+            opacity: 1;
+        }
+        .progress-bar .progress-track {
+            height: 100%;
+            width: 30%;
+            background: linear-gradient(90deg, #4a9eff, #7ab8ff);
+            border-radius: 2px;
+            animation: progressSlide 1.2s ease-in-out infinite;
+        }
+        @keyframes progressSlide {
+            0%   { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+
+        /* ── Report section ───────────────────────────────────── */
+        h2 {
+            margin: 16px 0 8px;
+            color: #333;
+            font-size: 15px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .report {
+            animation: reportFadeIn 0.4s ease-out;
+        }
+        @keyframes reportFadeIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .report-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        .report-header h2 { margin: 0; }
+
+        .summary-bar {
+            display: flex;
+            gap: 20px;
+            margin: 0 0 16px;
+            font-size: 14px;
+            padding: 12px 16px;
+            background: #fff;
+            border: 1px solid #dde0e4;
+            border-radius: 8px;
+        }
+        .summary-bar span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .report table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            background: #fff;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #dde0e4;
+        }
+        .report th {
+            background: #f0f1f4;
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 2px solid #dde0e4;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #666;
+            font-weight: 700;
+        }
+        .report td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #f0f1f4;
+        }
+        /* Zebra striping */
+        .report tbody tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        .report tbody tr:hover {
+            background: rgba(74,158,255,0.06);
+        }
+
+        .report a { color: #2979cc; text-decoration: none; }
+        .report a:hover { text-decoration: underline; }
+
+        /* ── Risk badges ──────────────────────────────────────── */
+        .risk-high {
+            color: #e74c3c;
+            font-weight: bold;
+            background: rgba(231,76,60,0.12);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .risk-medium {
+            color: #854d0e; /* yellow-800 — was amber-700 */
+            font-weight: bold;
+            background: rgba(234,179,8,0.15); /* yellow-500 tint — was amber */
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .risk-low {
+            color: #27ae60;
+            font-weight: bold;
+            background: rgba(39,174,96,0.12);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .risk-unknown {
+            color: #888;
+            font-weight: bold;
+            background: rgba(136,136,136,0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .risk-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        .risk-badge-high {
+            background: #e74c3c;
+            color: #fff;
+            border: none;
+        }
+        .risk-badge-medium {
+            background: #fef3c7; /* pale yellow chip — pastel pill, matches sample1.png */
+            color: #92400e;
+            border: 1px solid #fbbf24;
+        }
+        .risk-badge-low {
+            background: #27ae60;
+            color: #fff;
+            border: none;
+        }
+        .risk-badge-unknown {
+            background: #999;
+            color: #fff;
+            border: none;
+        }
+
+        /* ── Drilldown / QA Focus ─────────────────────────────── */
+        /* ── Sortable table headers ─────────────────────────────── */
+        #report-tables-container thead th.sortable {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+        }
+        #report-tables-container thead th.sortable:hover { color: #4a9eff; }
+        #report-tables-container thead th.sortable .sort-indicator {
+            display: inline-block;
+            margin-left: 4px;
+            font-size: 10px;
+            opacity: 0.4;
+            transition: opacity 0.12s;
+        }
+        #report-tables-container thead th.sortable.is-sorted .sort-indicator { opacity: 1; }
+
+        /* ── Clickable PR rows ──────────────────────────────────── */
+        #report-tables-container tbody tr.clickable { cursor: pointer; transition: background 0.12s; }
+        #report-tables-container tbody tr.clickable:hover { background: rgba(74,158,255,0.06); }
+        #report-tables-container tbody tr td a:hover { text-decoration: underline; }
+
+        /* ── Report group sections (Untested / Reviewed) ────────── */
+        .report-group { margin-bottom: 28px; }
+        .report-group-heading {
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+            margin: 12px 0 4px;
+            color: #444;
+        }
+        .report-group-heading.untested {
+            color: #c0392b;
+            border-left: 3px solid #c0392b;
+            padding-left: 8px;
+        }
+        .report-group-subheading {
+            font-size: 12px;
+            color: #888;
+            margin: 0 0 10px;
+            font-style: italic;
+        }
+        .report-group-subheading.untested-sub  { color: #c0392b; opacity: 0.8; }
+        .report-group-subheading.reviewed-sub  { color: #333; opacity: 0.8; }
+
+        /* Highlight target drilldown briefly when scrolled to */
+        .drilldown.flash {
+            animation: drilldownFlash 1.2s ease-out;
+        }
+        @keyframes drilldownFlash {
+            0%   { box-shadow: 0 0 0 3px rgba(74,158,255,0); background: rgba(74,158,255,0.18); }
+            40%  { box-shadow: 0 0 0 3px rgba(74,158,255,0.4); background: rgba(74,158,255,0.18); }
+            100% { box-shadow: 0 0 0 3px rgba(74,158,255,0); }
+        }
+
+        .qa-focus-heading {
+            margin-top: 28px;
+        }
+
+        .drilldown {
+            margin: 12px 0;
+            padding: 14px 16px;
+            background: #fff;
+            border-left: 4px solid #ccc;
+            border-radius: 6px;
+            border: 1px solid #dde0e4;
+            transition: border-color 0.2s;
+        }
+        .drilldown-high {
+            border-left: 4px solid #e74c3c;
+            border-color: #dde0e4;
+            background: rgba(231,76,60,0.03);
+        }
+        .drilldown-medium {
+            border-left: 4px solid #eab308; /* yellow — was orange #f39c12 */
+            border-color: #dde0e4;
+            background: rgba(234,179,8,0.04);
+        }
+
+        .drilldown summary {
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            padding: 2px 0;
+            list-style: none;
+        }
+        .drilldown summary::-webkit-details-marker { display: none; }
+        .drilldown summary::before {
+            content: '\25B6';
+            display: inline-block;
+            margin-right: 8px;
+            font-size: 10px;
+            transition: transform 0.2s;
+            color: #999;
+        }
+        .drilldown[open] summary::before {
+            transform: rotate(90deg);
+        }
+
+        .drilldown .reason { margin: 10px 0; color: #555; font-size: 13px; line-height: 1.5; }
+        .drilldown ol { margin-left: 28px; margin-top: 8px; }
+        .drilldown li { margin: 5px 0; font-size: 13px; line-height: 1.5; color: #444; }
+        .drilldown .areas { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+        .drilldown .area-tag {
+            background: #f0f1f4;
+            border: 1px solid #dde0e4;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            color: #555;
+        }
+        .drilldown .test-approach {
+            font-style: italic;
+            color: #777;
+            font-size: 13px;
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid #eee;
+        }
+
+        /* CodeRabbit source markers — uses the CodeRabbit logo as a tiny
+           inline icon. Asset is embedded as a base64 data URL so we don't
+           need a separate static-file route for one 878-byte image. */
+        .cr-badge {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            margin-left: 6px;
+            vertical-align: -3px;
+            background: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACkAAAAnCAIAAAAdCPbRAAADNUlEQVR42mK5EKjLMECAiWHgwKjdQ8BuNnEJTiVVBkbGAbCbXVxatXuN5pzd4qHJTNzcdLX7653r/3//YhUQFY/IU5+8mdfQnH52//v27f2RLRA2K7+wQtUMfktH+qW1l8um/Pn0DsJmZGKSzevkkJWnk92/3729V5/069UTqBFs7FJJFWSYw0KkOlYhYfGITDYJeSZW9j8fXn+7ffFBZ76IZ4SQSygDAwOPnhWHnOKPR/dp4u/f79+xSyvyaJtxqenzmblIRBerdq/+///f88Xd////B1tPcqJjJL4uYREQVG6axy6thCz469XTrzfPC9r6/H7znJGTh4Wb9/+fP79ePvp4Zv/bbSt+v3mFx0DmDE1xYlP4jx8fj+3kUtVhE5VG6OfmYxUWZ2BgZOEVYGJjh6Q+Fj5Bbg0jYffw/7++fLt1lQp2g6z/+eP9oa3/vn3kVNZmYueApTUORmYs6YaRmYXXwIZNXPzTuSMM//5RajcI/P//7eblN9tX/Hr5gImFlUVQlImFFY9yTgVNdkmZjyf2UhTf0Fjn5WVk5/j7/fu/r1/AvmaUyaoTcgzCo+XP18/X4mzIz2Ns4hKi/ol85s6sAqJQEz+++3bz7MfTBz6fO4Tf7l/PH5Kfv/ktHWVy25nZOVF08gvxmbnymbn+/fkDv/aPR7aSaTePrpFcUR8jE86SgBmW6LCCb3evvNm5hpyyhYmDQza3A4/F+MHnC0ceNKX///WLHH8LuwSAsy/J4NerJy+W9n84upcBXOqRaDcjIwsfv5B7JKm2/vn07uXyie/2b/3/+zeZdYlyyxxuDRNSLf5y9dSjnpI/nz5SUJewsHCp6DMwMPx8cvc/7kBDA98f3X7Qlkukxbjt/vPn9bbFvz++/Xr7AiOOZuF/MEBtU0z49+MHFerQF4snP+wp5JBTx5dxj27/fPEIIsBvXKRS/f3v37drF/99/4o7LTIK2Hi9P7Tly+UTEBEOWSVqth0+ndyNXwGXnOqjnuKfT++BkmfDPOmUMqrZ/Xb3hm93Lv/98Q0X+nbv+p8vX+41pX27f42BiUnII5JFQJD67ZbRvuCo3aN2DzG7AQEAAP//i35HkI++VJcAAAAASUVORK5CYII=") no-repeat center / contain;
+        }
+        .cr-badge::after { content: ""; }
+        .drilldown .cr-footer {
+            font-style: italic;
+            color: #888;
+            font-size: 11.5px;
+            margin-top: 8px;
+        }
+        .cr-legend {
+            font-size: 11.5px;
+            color: #6d5400;
+            background: #fff8d6;
+            border: 1px solid #f0d878;
+            border-radius: 3px;
+            padding: 6px 10px;
+            margin: 8px 0 12px 0;
+        }
+        .cr-legend[hidden] { display: none; }
+
+        /* ── Log window ───────────────────────────────────────── */
+        .log-section {
+            margin-top: auto; /* push to bottom of main-content */
+            padding-top: 12px;
+            border-top: 1px solid #eee;
+        }
+
+        .log-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            padding: 8px 0;
+            user-select: none;
+            list-style: none;
+        }
+        .log-toggle::-webkit-details-marker { display: none; }
+        .log-toggle h2 { margin: 0; }
+        .log-toggle::before {
+            content: '\25B6';
+            display: inline-block;
+            margin-right: 8px;
+            font-size: 10px;
+            transition: transform 0.2s;
+            color: #999;
+        }
+        .log-section[open] .log-toggle::before {
+            transform: rotate(90deg);
+        }
+
+        .btn-copy-log {
+            background: #f0f1f4;
+            border: 1px solid #ccd0d5;
+            color: #666;
+            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .btn-copy-log:hover { color: #333; border-color: #999; }
+        .btn-copy-log.copied { color: #2ecc71; border-color: rgba(46,204,113,0.3); }
+
+        .log-window {
+            background: #1a1a2e;
+            border: 1px solid #dde0e4;
+            border-radius: 8px;
+            padding: 14px 16px;
+            max-height: 220px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #444 #1a1a2e;
+            box-shadow: inset 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .log-window pre {
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 12px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            color: #8bc34a;
+        }
+        .log-window .log-line-ts {
+            color: #555;
+            user-select: none;
+        }
+
+        /* ── Empty state ──────────────────────────────────────── */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px;
+            color: #999;
+            text-align: center;
+        }
+        .empty-state .empty-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+        .empty-state p {
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* ── Analysis progress (replaces empty-state during analysis) ─ */
+        .analysis-progress {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px;
+            color: #555;
+            text-align: center;
+            gap: 14px;
+        }
+        /* Restore browser default for hidden — the display:flex above beats it */
+        .analysis-progress[hidden] { display: none; }
+        .analysis-progress-track[hidden] { display: none; }
+        .analysis-progress-label {
+            font-size: 15px;
+            font-weight: 600;
+            color: #333;
+        }
+        .analysis-progress-track {
+            width: 70%;
+            max-width: 520px;
+            min-width: 280px;
+            height: 8px;
+            background: #e0e2e6;
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);
+        }
+        .analysis-progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #4a9eff, #7ab8ff);
+            border-radius: 4px;
+            transition: width 0.35s ease-out;
+        }
+        .analysis-progress-hint {
+            font-size: 12px;
+            color: #999;
+            font-style: italic;
+        }
+
+        /* ── Scrollbar styling (WebKit) ───────────────────────── */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+        /* ── Sel-count (kept for compat) ──────────────────────── */
+        .sel-count {
+            font-size: 10px;
+            color: #999;
+            margin-left: auto;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* ── Old class compat (controls panel reference) ──────── */
+        .controls { display: none; }
+
+        /* Query-options chip — visually groups the three query-shaping
+           controls (Mode / List PRs only / Use CodeRabbit) so the user
+           sees them as one related set rather than scattered toggles. */
+        .query-options-group {
+            display: inline-flex;          /* fit to content */
+            width: fit-content;
+            align-items: flex-start;       /* tops aligned even when helpers wrap */
+            gap: 18px;                     /* uniform gap between the 3 options */
+            padding: 9px 12px 7px;
+            background: #eef3f9;
+            border: 1px solid #c8d2dc;
+            border-radius: 8px;
+            position: relative;
+        }
+        /* All three options pinned to a uniform column width so the gaps
+           between them look equal regardless of helper-text length. */
+        .query-options-group > .header-control-group,
+        .query-options-group > .skip-analysis-label {
+            width: 210px;
+            flex: 0 0 210px;
+        }
+        .query-options-group::before {
+            content: 'Query options';
+            position: absolute;
+            top: -8px;
+            left: 10px;
+            background: #fff;
+            padding: 0 6px;
+            font-size: 9px;
+            font-weight: 700;
+            color: #5a6573;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+        }
+        /* Inside the chip: stack the "Search for" label above the radios
+           with a small-caps label so it visually anchors the group. */
+        .query-options-group .header-control-group {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
+            min-height: 0;
+        }
+        .query-options-group .header-label {
+            font-size: 9px;
+            color: #5a6573;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+        }
+        /* Visually mute Use CodeRabbit when List PRs only is checked
+           (analysis is skipped, so CodeRabbit data isn't relevant). */
+        .skip-analysis-label.is-disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .skip-analysis-label.is-disabled input { cursor: not-allowed; }
+
+        /* Sidebar Days input */
+        .sidebar-input-days {
+            width: 70px;
+            padding: 6px 8px;
+            font-size: 13px;
+            border: 1px solid #ccd0d5;
+            border-radius: 4px;
+            font-family: inherit;
+        }
+        .sidebar-input-days:focus {
+            outline: none;
+            border-color: #4a9eff;
+            box-shadow: 0 0 0 2px rgba(74,158,255,0.15);
+        }
+        .sidebar-days-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-left">
+            <h1><span class="accent">ghquery</span> — PR Risk Report</h1>
+        </div>
+        <div class="header-controls">
+            <button class="btn-run" id="btn-run">Preview Report</button>
+            <button class="btn-cancel" id="btn-cancel" hidden>Cancel</button>
+            <button class="btn-save-query" id="btn-save-query">Save as Scheduled Query</button>
+            <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
+                <button class="btn-send-webhook" id="btn-send-webhook" hidden>Send to Hook</button>
+                <button class="btn-schedule" id="btn-schedule">
+                    Schedule<span class="schedule-indicator" id="schedule-indicator" hidden> · <span id="schedule-indicator-text"></span></span>
+                </button>
+                <button class="btn-exit" id="btn-exit">Quit</button>
+            </div>
+        </div>
+        <div class="header-controls-row2">
+            <div class="query-options-group">
+                <div class="header-control-group">
+                    <span class="header-label">Search for</span>
+                    <div class="mode-toggle">
+                        <label><input type="radio" name="mode" value="all" checked> All PRs</label>
+                        <label><input type="radio" name="mode" value="untested"> Untested</label>
+                    </div>
+                </div>
+                <label class="skip-analysis-label"><input type="checkbox" id="skip-analysis"> List PRs only<span class="skip-analysis-helper">Skip risk analysis</span></label>
+                <label class="skip-analysis-label"><input type="checkbox" id="use-coderabbit"> Use CodeRabbit<span class="skip-analysis-helper">Use CodeRabbit's analysis if available</span></label>
+            </div>
+            <div class="header-webhook-group" style="margin-left: auto;">
+                <div class="header-control-group header-webhook">
+                    <span class="header-label">Webhook</span>
+                    <input type="text" id="webhook-url" placeholder="http://localhost:8065/hooks/..." class="header-input-webhook">
+                    <button class="btn-test" id="btn-test-webhook">Test</button>
+                </div>
+                <span id="webhook-status" class="webhook-status" style="display:block;text-align:right;font-size:11px;min-height:14px;"></span>
+            </div>
+        </div>
+    </header>
+
+    <div class="app-body">
+        <!-- ── LEFT SIDEBAR ────────────────────────────────────── -->
+        <aside class="sidebar" id="sidebar">
+            <!-- Single-PR mode (collapsed by default) — overrides team/author/date filters when populated -->
+            <details class="single-pr-section" id="single-pr-section">
+                <summary>Check an individual PR</summary>
+                <div class="single-pr-body">
+                    <label for="single-pr-url">GitHub PR URL</label>
+                    <input type="text" id="single-pr-url" placeholder="https://github.com/org/repo/pull/123" autocomplete="off">
+                    <div class="single-pr-hint">When set, Preview ignores team/author/date filters and analyzes just this PR.</div>
+                    <div class="single-pr-active-banner" id="single-pr-active-banner">Single-PR mode active — sidebar filters are ignored.</div>
+                </div>
+            </details>
+
+            <!-- Days (query parameter — was previously in the header) -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-header">
+                    <h3>Days</h3>
+                </div>
+                <div class="sidebar-days-row">
+                    <input type="number" id="days" min="1" max="14" value="7" class="sidebar-input-days">
+                    <span>look back (max 14)</span>
+                </div>
+            </div>
+
+            <!-- Teams -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-header">
+                    <h3>Teams</h3>
+                    <span class="section-count" id="teams-count">0/0</span>
+                </div>
+                <div class="sidebar-section-actions">
+                    <button class="sel-action" data-target="teams" data-action="all">All</button>
+                    <button class="sel-action" data-target="teams" data-action="none">Clear</button>
+                </div>
+                <div class="checkbox-list" id="teams-list"></div>
+            </div>
+
+            <!-- Authors -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-header">
+                    <h3>Authors</h3>
+                    <span class="section-count" id="authors-count">0/0</span>
+                </div>
+                <div class="sidebar-section-actions">
+                    <button class="sel-action" data-target="authors" data-action="all">All</button>
+                    <button class="sel-action" data-target="authors" data-action="none">Clear</button>
+                    <label class="name-toggle-label" style="margin-left:auto;font-size:11px;color:#666;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                        <input type="checkbox" id="show-names-toggle" style="accent-color:#4a9eff;">
+                        <span>Show names</span>
+                    </label>
+                </div>
+                <div class="checkbox-list" id="authors-list"></div>
+            </div>
+
+            <!-- Repos -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-header">
+                    <h3>Repos</h3>
+                    <span class="section-count" id="repos-count">0/0</span>
+                </div>
+                <div class="sidebar-section-actions">
+                    <button class="sel-action" data-target="repos" data-action="all">All</button>
+                    <button class="sel-action" data-target="repos" data-action="none">Clear</button>
+                </div>
+                <div class="checkbox-list" id="repos-list"></div>
+            </div>
+        </aside>
+
+        <!-- ── MAIN CONTENT ────────────────────────────────────── -->
+        <main class="main-content">
+            <div class="progress-bar" id="progress-bar"><div class="progress-track"></div></div>
+
+            <!-- Active filter pills -->
+            <div class="active-filters" id="active-filters"></div>
+
+            <!-- Save-query action bar (visible only when a preview is rendered) -->
+            <div class="results-actions" id="results-actions" hidden>
+                <button class="btn-save-query" id="btn-save-query">Save as Scheduled Query</button>
+            </div>
+
+            <!-- Report area -->
+            <div class="report" id="report-section" hidden>
+                <div class="report-header">
+                    <h2>Results Preview</h2>
+                </div>
+                <div class="summary-bar" id="report-summary"></div>
+                <div class="cr-legend" id="report-cr-legend" hidden><span class="cr-badge" title="Generated by CodeRabbitAI" aria-label="CodeRabbit logo"></span> sourced from CodeRabbitAI's Change Impact summary· All other rows analyzed by per-PR agent.</div>
+                <div id="report-tables-container">
+                    <!-- Populated by JS — one or two table groups depending on
+                         whether any PRs are flagged as untested. -->
+                </div>
+                <div id="qa-focus"></div>
+            </div>
+
+            <!-- Empty state (shown when no report and not analyzing) -->
+            <div class="empty-state" id="empty-state">
+                <div class="empty-icon">&#9776;</div>
+                <p>Select teams, authors, and repos from the sidebar, then click <strong>Preview Report</strong>.</p>
+            </div>
+
+            <!-- Analysis progress (shown during real analysis runs) -->
+            <div class="analysis-progress" id="analysis-progress" hidden>
+                <div class="analysis-progress-label" id="analysis-progress-label">Fetching PRs…</div>
+                <div class="analysis-progress-track" id="analysis-progress-track" hidden>
+                    <div class="analysis-progress-fill" id="analysis-progress-fill"></div>
+                </div>
+                <div class="analysis-progress-hint" id="analysis-progress-hint" hidden>Each PR is analyzed by a Claude subagent (max 3 concurrent).</div>
+            </div>
+
+            <!-- Log -->
+            <details class="log-section" id="log-section">
+                <summary class="log-toggle">
+                    <h2 style="display:inline">Console Log</h2>
+                    <button class="btn-copy-log" id="btn-copy-log" onclick="event.stopPropagation()">Copy Log</button>
+                </summary>
+                <div class="log-window" id="log-window">
+                    <pre id="log-output">Ready.</pre>
+                </div>
+            </details>
+        </main>
+    </div>
+
+    <!-- Schedule Modal -->
+    <div class="modal-overlay" id="schedule-modal">
+        <div class="modal modal-schedule">
+            <h2>Schedule Daily Run</h2>
+
+            <!-- Enable toggle -->
+            <div class="modal-field schedule-toggle-row">
+                <label class="schedule-toggle-label">
+                    <span class="toggle-switch">
+                        <input type="checkbox" id="schedule-enabled">
+                        <span class="toggle-switch-slider"></span>
+                    </span>
+                    <span class="schedule-toggle-text">Enable Scheduled Runs</span>
+                </label>
+            </div>
+
+            <!-- Status row -->
+            <div class="schedule-status" id="schedule-status">
+                <span class="schedule-status-dot" id="schedule-status-dot"></span>
+                <span class="schedule-status-text" id="schedule-status-text">Disabled</span>
+                <span class="schedule-status-next" id="schedule-status-next"></span>
+            </div>
+
+            <!-- Error banner -->
+            <div class="schedule-error" id="schedule-error" hidden>
+                <strong>Could not install schedule:</strong>
+                <span id="schedule-error-msg"></span>
+            </div>
+
+            <!-- Form body — dims when disabled -->
+            <div class="schedule-form-body" id="schedule-form-body">
+                <div class="modal-field">
+                    <label>Frequency</label>
+                    <select id="schedule-freq">
+                        <option value="daily">Daily</option>
+                        <option value="weekdays">Daily (Mon-Fri)</option>
+                        <option value="weekly">Weekly</option>
+                    </select>
+                </div>
+                <div class="modal-days-row">
+                    <div class="modal-field">
+                        <label>Time (24h)</label>
+                        <!-- Hidden input preserves the JS contract: scheduleTime.value === "HH:MM" 24h -->
+                        <input type="hidden" id="schedule-time" value="08:00">
+                        <div class="time-picker" id="schedule-time-picker">
+                            <div class="time-picker-field-wrap">
+                                <span class="time-picker-field-label" id="schedule-hour-label">Hour</span>
+                                <button type="button" class="time-picker-chevron time-picker-chevron-up" data-field="hour" aria-label="Increase hour">&#9650;</button>
+                                <input type="number"
+                                       id="schedule-hour-input"
+                                       class="time-picker-input"
+                                       min="0"
+                                       max="23"
+                                       step="1"
+                                       value="08"
+                                       aria-labelledby="schedule-hour-label"
+                                       inputmode="numeric">
+                                <button type="button" class="time-picker-chevron time-picker-chevron-down" data-field="hour" aria-label="Decrease hour">&#9660;</button>
+                            </div>
+                            <div class="time-picker-colon">:</div>
+                            <div class="time-picker-field-wrap">
+                                <span class="time-picker-field-label" id="schedule-minute-label">Minute</span>
+                                <button type="button" class="time-picker-chevron time-picker-chevron-up" data-field="minute" aria-label="Increase minute">&#9650;</button>
+                                <input type="number"
+                                       id="schedule-minute-input"
+                                       class="time-picker-input"
+                                       min="0"
+                                       max="59"
+                                       step="1"
+                                       value="00"
+                                       aria-labelledby="schedule-minute-label"
+                                       inputmode="numeric">
+                                <button type="button" class="time-picker-chevron time-picker-chevron-down" data-field="minute" aria-label="Decrease minute">&#9660;</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-field" id="schedule-day-field" hidden>
+                        <label>Day of week</label>
+                        <select id="schedule-day">
+                            <option value="monday">Monday</option>
+                            <option value="tuesday">Tuesday</option>
+                            <option value="wednesday">Wednesday</option>
+                            <option value="thursday">Thursday</option>
+                            <option value="friday" selected>Friday</option>
+                            <option value="saturday">Saturday</option>
+                            <option value="sunday">Sunday</option>
+                        </select>
+                    </div>
+                </div>
+                <p class="schedule-helper">
+                    Uses current filters (teams, authors, repos, mode, webhook). Saved to <code>config.yaml</code> and installed via launchd (macOS) / Task Scheduler (Windows). If the machine is asleep at the scheduled time, the run starts when it wakes (macOS) or on next boot (Windows).
+                </p>
+            </div>
+
+            <!-- Actions -->
+            <div class="modal-actions schedule-actions">
+                <button class="btn-modal-disable" id="schedule-disable" hidden>Disable Schedule</button>
+                <span class="schedule-actions-spacer"></span>
+                <button class="btn-modal-cancel" id="schedule-cancel">Cancel</button>
+                <button class="btn-modal-save" id="schedule-save">Save Schedule</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    const logOutput = document.getElementById('log-output');
+    const logWindow = document.getElementById('log-window');
+    const btnRun = document.getElementById('btn-run');
+    const btnTest = document.getElementById('btn-test-webhook');
+    const btnExit = document.getElementById('btn-exit');
+    const btnCancel = document.getElementById('btn-cancel');
+    let activeAbort = null; // AbortController for the current run
+    const reportSection = document.getElementById('report-section');
+    const reportSummary = document.getElementById('report-summary');
+    // reportBody legacy reference removed — table content now lives inside
+    // #report-tables-container, populated by renderReportTables().
+    const qaFocus = document.getElementById('qa-focus');
+    const webhookStatus = document.getElementById('webhook-status');
+    const activeFiltersEl = document.getElementById('active-filters');
+    const emptyState = document.getElementById('empty-state');
+
+    // ── Checkbox helpers ───────────────────────────────────
+    function getCheckedValues(listId) {
+        const container = document.getElementById(listId);
+        const checked = container.querySelectorAll('input[type="checkbox"]:checked');
+        return [...checked].map(cb => cb.value);
+    }
+
+    function setAllCheckboxes(listId, checked) {
+        const container = document.getElementById(listId);
+        container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.checked = checked;
+        });
+    }
+
+    function updateSectionCount(listId) {
+        const container = document.getElementById(listId);
+        const countEl = document.getElementById(listId.replace('-list', '') + '-count');
+        if (!countEl) return;
+        const total = container.querySelectorAll('input[type="checkbox"]').length;
+        const selected = container.querySelectorAll('input[type="checkbox"]:checked').length;
+        countEl.textContent = selected + '/' + total;
+    }
+
+    // ── Backward-compat: getSelectedValues for old select IDs ──
+    function getSelectedValues(selectId) {
+        // Map old select IDs to new checkbox list IDs
+        const mapping = { teams: 'teams-list', authors: 'authors-list', repos: 'repos-list' };
+        const listId = mapping[selectId] || selectId;
+        return getCheckedValues(listId);
+    }
+
+    // ── Backward-compat: updateSelectCount ──────────────────
+    function updateSelectCount(selectId) {
+        const mapping = { teams: 'teams-list', authors: 'authors-list', repos: 'repos-list' };
+        const listId = mapping[selectId] || selectId;
+        updateSectionCount(listId);
+    }
+
+    // ── Select All / Clear helpers ──────────────────────────
+    document.querySelectorAll('.sel-action').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-target');
+            const action = btn.getAttribute('data-action');
+            const listId = targetId + '-list';
+            setAllCheckboxes(listId, action === 'all');
+            updateSectionCount(listId);
+            // If teams changed, cascade to authors
+            if (targetId === 'teams') {
+                syncAuthorsFromTeams();
+            }
+            updateFilterPills();
+        });
+    });
+
+    // ── Active filter pills ─────────────────────────────────
+    function updateFilterPills() {
+        activeFiltersEl.innerHTML = '';
+
+        const teams = getCheckedValues('teams-list');
+        const authors = getCheckedValues('authors-list');
+        const repos = getCheckedValues('repos-list');
+
+        // Helper: uncheck a checkbox AND fire its change event so listeners run
+        // (e.g. team-sync, override tracking). This is the single piece of logic
+        // pills must share with sidebar clicks.
+        function uncheckViaPill(selector) {
+            const cb = document.querySelector(selector);
+            if (!cb) return;
+            cb.checked = false;
+            cb.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        teams.forEach(t => {
+            const pill = createPill(t, 'pill-team', () => {
+                uncheckViaPill('#teams-list input[value="' + CSS.escape(t) + '"]');
+                updateFilterPills();
+            });
+            activeFiltersEl.appendChild(pill);
+        });
+
+        authors.forEach(a => {
+            const pill = createPill(authorLabel(a), '', () => {
+                uncheckViaPill('#authors-list input[value="' + CSS.escape(a) + '"]');
+                updateFilterPills();
+            });
+            activeFiltersEl.appendChild(pill);
+        });
+
+        repos.forEach(r => {
+            const displayName = r.split('/')[1] || r;
+            const pill = createPill(displayName, 'pill-repo', () => {
+                uncheckViaPill('#repos-list input[value="' + CSS.escape(r) + '"]');
+                updateFilterPills();
+            });
+            activeFiltersEl.appendChild(pill);
+        });
+    }
+
+    function createPill(text, extraClass, onRemove) {
+        const pill = document.createElement('span');
+        pill.className = 'filter-pill' + (extraClass ? ' ' + extraClass : '');
+        pill.innerHTML = '<span>' + text + '</span>';
+        const btn = document.createElement('button');
+        btn.className = 'pill-remove';
+        btn.textContent = '\u00d7';
+        btn.addEventListener('click', onRemove);
+        pill.appendChild(btn);
+        return pill;
+    }
+
+    // ── Copy log to clipboard ───────────────────────────────
+    document.getElementById('btn-copy-log').addEventListener('click', function() {
+        const text = logOutput.textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            this.textContent = 'Copied';
+            this.classList.add('copied');
+            setTimeout(() => {
+                this.textContent = 'Copy Log';
+                this.classList.remove('copied');
+            }, 1500);
+        });
+    });
+
+    // ── Analysis progress (determinate bar in main area) ─────
+    // Phases:
+    //   IDLE        — empty-state visible, panel hidden
+    //   FETCHING    — panel visible with "Fetching PRs…" label, NO bar yet
+    //   ANALYZING   — bar visible with "Analyzing X of Y PRs…" label
+    //   DONE        — panel hidden
+    const analysisProgressEl = document.getElementById('analysis-progress');
+    const analysisProgressLabel = document.getElementById('analysis-progress-label');
+    const analysisProgressFill = document.getElementById('analysis-progress-fill');
+    const analysisProgressTrack = document.getElementById('analysis-progress-track');
+    const analysisProgressHint = document.getElementById('analysis-progress-hint');
+    let _analysisTotal = 0;
+    let _analysisDone = 0;
+
+    function showFetchingState(skipAnalysis) {
+        if (skipAnalysis) {
+            // No analysis to show — keep the empty-state, panel stays hidden.
+            // The console log already shows fetch progress.
+            analysisProgressEl.hidden = true;
+            return;
+        }
+        _analysisTotal = 0;
+        _analysisDone = 0;
+        analysisProgressLabel.textContent = 'Fetching PRs…';
+        analysisProgressTrack.hidden = true;
+        analysisProgressHint.hidden = true;
+        analysisProgressFill.style.width = '0%';
+        analysisProgressEl.hidden = false;
+        emptyState.hidden = true;
+    }
+
+    function showAnalyzingBar(total) {
+        _analysisTotal = total;
+        _analysisDone = 0;
+        analysisProgressTrack.hidden = false;
+        analysisProgressHint.hidden = false;
+        analysisProgressFill.style.width = '0%';
+        analysisProgressLabel.textContent = 'Analyzing 0 of ' + total + ' PRs…';
+    }
+
+    function hideAnalysisProgress() {
+        analysisProgressEl.hidden = true;
+        analysisProgressTrack.hidden = true;
+        analysisProgressHint.hidden = true;
+        analysisProgressFill.style.width = '0%';
+    }
+
+    function updateAnalysisProgress(line) {
+        if (analysisProgressEl.hidden) return;
+
+        // New log format: "[analyze] N PRs total — M sourced from CodeRabbit, K to analyze by agent ..."
+        // Old format (no CR) would be: "[analyze] N PRs total — 0 sourced from CodeRabbit, N to analyze by agent ..."
+        const totalMatch = line.match(/\[analyze\]\s+(\d+)\s+PRs?\s+total/i);
+        if (totalMatch) {
+            _analysisTotal = parseInt(totalMatch[1], 10) || 0;
+            // CodeRabbit-sourced PRs complete instantly — pre-count them as done
+            // so the bar reaches 100% when all agent PRs finish.
+            const crMatch = line.match(/(\d+)\s+sourced from CodeRabbit/i);
+            const closedMatch = line.match(/(\d+)\s+closed\s+\(skipped\)/i);
+            const crDone = crMatch ? (parseInt(crMatch[1], 10) || 0) : 0;
+            const closedDone = closedMatch ? (parseInt(closedMatch[1], 10) || 0) : 0;
+            _analysisDone = crDone + closedDone;
+
+            if (_analysisTotal > 0 && _analysisDone >= _analysisTotal) {
+                // All PRs from CodeRabbit — nothing for agents to do, show full bar.
+                showAnalyzingBar(_analysisTotal);
+                analysisProgressFill.style.width = '100%';
+                analysisProgressLabel.textContent = 'Finishing up…';
+            } else {
+                analysisProgressLabel.textContent = 'Preparing to analyze ' + _analysisTotal + ' PRs…';
+            }
+            return;
+        }
+
+        // First "picked up" → reveal the bar; restore CR pre-count after showAnalyzingBar
+        // resets _analysisDone to 0.
+        if (analysisProgressTrack.hidden && _analysisTotal > 0 &&
+            /\[agent:[^\]]+\].*\bpicked up\b/i.test(line)) {
+            const preDone = _analysisDone;  // save CR count before showAnalyzingBar wipes it
+            showAnalyzingBar(_analysisTotal);
+            if (preDone > 0) {
+                _analysisDone = preDone;
+                const pct = (_analysisDone / _analysisTotal) * 100;
+                analysisProgressFill.style.width = pct.toFixed(1) + '%';
+                analysisProgressLabel.textContent = 'Analyzing ' + _analysisDone + ' of ' + _analysisTotal + ' PRs…';
+            }
+            return;
+        }
+
+        // Per-PR Pass B completion → bump the count.
+        // Pass A's "done in" / "FAILED after" lines contain "pass A" and are excluded.
+        if (!analysisProgressTrack.hidden && _analysisTotal > 0 &&
+            !/\bpass\s+a\b/i.test(line) &&
+            /\[agent:[^\]]+\].*\b(done in|FAILED after)\b/i.test(line)) {
+            _analysisDone = Math.min(_analysisDone + 1, _analysisTotal);
+            const pct = (_analysisDone / _analysisTotal) * 100;
+            analysisProgressFill.style.width = pct.toFixed(1) + '%';
+            analysisProgressLabel.textContent = 'Analyzing ' + _analysisDone + ' of ' + _analysisTotal + ' PRs…';
+            if (_analysisDone >= _analysisTotal) {
+                analysisProgressLabel.textContent = 'Finishing up…';
+            }
+        }
+    }
+
+    // ── Running state management ────────────────────────────
+    function setRunningState(isRunning) {
+        const sidebar = document.getElementById('sidebar');
+        const bar = document.getElementById('progress-bar');
+        if (isRunning) {
+            document.body.classList.add('running');
+            sidebar.classList.add('running');
+            bar.classList.add('active');
+            btnRun.classList.add('is-running');
+            btnRun.hidden = true;
+            btnCancel.hidden = false;
+        } else {
+            document.body.classList.remove('running');
+            sidebar.classList.remove('running');
+            bar.classList.remove('active');
+            btnRun.classList.remove('is-running');
+            btnRun.hidden = false;
+            btnCancel.hidden = true;
+            activeAbort = null;
+        }
+    }
+
+    // ── Timestamp for log lines ─────────────────────────────
+    function logTimestamp() {
+        const now = new Date();
+        const h = String(now.getHours()).padStart(2, '0');
+        const m = String(now.getMinutes()).padStart(2, '0');
+        const s = String(now.getSeconds()).padStart(2, '0');
+        return h + ':' + m + ':' + s;
+    }
+
+    // ── Team → Author sync logic ────────────────────────────
+    // Track manually unchecked authors per team
+    let _teamOverrides = {}; // { teamName: Set of unchecked authors }
+
+    function syncAuthorsFromTeams() {
+        if (!window._config) return;
+        const config = window._config;
+
+        const checkedTeams = getCheckedValues('teams-list');
+        const teamMembers = new Set();
+        checkedTeams.forEach(t => {
+            (config.teams[t] || []).forEach(m => teamMembers.add(m));
+        });
+
+        // Check all members of selected teams, respecting manual overrides
+        document.querySelectorAll('#authors-list input[type="checkbox"]').forEach(cb => {
+            if (teamMembers.has(cb.value)) {
+                // Check unless user manually unchecked
+                const isOverridden = checkedTeams.some(t => {
+                    return _teamOverrides[t] && _teamOverrides[t].has(cb.value);
+                });
+                cb.checked = !isOverridden;
+            } else {
+                // Not a member of any selected team: uncheck (unless no teams selected)
+                if (checkedTeams.length > 0) {
+                    cb.checked = false;
+                }
+            }
+        });
+
+        updateSectionCount('authors-list');
+    }
+
+    // Safe ID generator — replaces spaces and special chars
+    let _idCounter = 0;
+    function safeId(prefix, value) {
+        return prefix + '-' + (++_idCounter);
+    }
+
+    // Display label for an author handle.
+    // Respects the "Show names" toggle. Falls back to the handle if name is empty.
+    function authorLabel(handle) {
+        const showNames = document.getElementById('show-names-toggle')?.checked;
+        if (!showNames) return handle;
+        const names = window._config?.author_names || {};
+        const name = names[handle] || names[handle.toLowerCase()];
+        return (name && name.trim()) ? name : handle;
+    }
+
+    // Load config on startup
+    async function loadConfig() {
+        const resp = await fetch('/api/config');
+        const config = await resp.json();
+
+        // Populate repos — pre-check based on saved query (fall back to all selected if no saved query)
+        const reposList = document.getElementById('repos-list');
+        const savedRepoSet = new Set((config.query && config.query.repos) || config.repos);
+        const hasSavedQuery = !!(config.query && config.query.repos && config.query.repos.length);
+        config.repos.forEach(r => {
+            const displayName = r.split('/')[1] || r;
+            const id = safeId('repo', r);
+            const item = document.createElement('div');
+            item.className = 'checkbox-item';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox'; cb.id = id; cb.value = r;
+            // If we have a saved query, only check repos that are in it. Otherwise default to all.
+            cb.checked = hasSavedQuery ? savedRepoSet.has(r) : true;
+            const lbl = document.createElement('label');
+            lbl.setAttribute('for', id); lbl.textContent = displayName;
+            item.appendChild(cb); item.appendChild(lbl);
+            reposList.appendChild(item);
+        });
+
+        // Populate teams
+        const teamsList = document.getElementById('teams-list');
+        Object.keys(config.teams).sort().forEach(name => {
+            const memberCount = config.teams[name].length;
+            const id = safeId('team', name);
+            const item = document.createElement('div');
+            item.className = 'checkbox-item';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox'; cb.id = id; cb.value = name;
+            const lbl = document.createElement('label');
+            lbl.setAttribute('for', id); lbl.textContent = name;
+            const count = document.createElement('span');
+            count.className = 'team-member-count'; count.textContent = memberCount;
+            item.appendChild(cb); item.appendChild(lbl); item.appendChild(count);
+            teamsList.appendChild(item);
+        });
+
+        // Populate authors (all unique members)
+        const authorsList = document.getElementById('authors-list');
+        const allAuthors = new Set();
+        Object.values(config.teams).forEach(members => {
+            members.forEach(m => allAuthors.add(m));
+        });
+        window._allAuthors = [...allAuthors]; // store for re-sorting
+
+        function renderAuthorList() {
+            // Remember which handles were checked before re-render
+            const checkedSet = new Set(
+                [...authorsList.querySelectorAll('input[type="checkbox"]:checked')].map(cb => cb.value)
+            );
+
+            authorsList.innerHTML = '';
+
+            // Sort by current display label (case-insensitive), fall back to handle
+            const sorted = [...window._allAuthors].sort((a, b) => {
+                return authorLabel(a).toLowerCase().localeCompare(authorLabel(b).toLowerCase());
+            });
+
+            sorted.forEach(a => {
+                const id = safeId('author', a);
+                const item = document.createElement('div');
+                item.className = 'checkbox-item';
+                const cb = document.createElement('input');
+                cb.type = 'checkbox'; cb.id = id; cb.value = a;
+                cb.checked = checkedSet.has(a);
+                const lbl = document.createElement('label');
+                lbl.setAttribute('for', id);
+                lbl.textContent = authorLabel(a);
+                lbl.dataset.handle = a;
+                item.appendChild(cb); item.appendChild(lbl);
+                authorsList.appendChild(item);
+            });
+        }
+
+        renderAuthorList();
+
+        // Pre-check authors from saved query
+        const savedAuthors = (config.query && config.query.authors) || [];
+        if (savedAuthors.length > 0) {
+            const savedAuthorSet = new Set(savedAuthors.map(a => a.toLowerCase()));
+            document.querySelectorAll('#authors-list input[type="checkbox"]').forEach(cb => {
+                cb.checked = savedAuthorSet.has(cb.value.toLowerCase());
+            });
+
+            // Auto-check teams whose entire membership is in the saved authors
+            Object.entries(config.teams).forEach(([teamName, members]) => {
+                if (!members || members.length === 0) return;
+                const allMembersSelected = members.every(m => savedAuthorSet.has(m.toLowerCase()));
+                if (allMembersSelected) {
+                    const teamCb = document.querySelector(
+                        '#teams-list input[type="checkbox"][value="' + CSS.escape(teamName) + '"]'
+                    );
+                    if (teamCb) teamCb.checked = true;
+                }
+            });
+        }
+
+        // Pre-fill days from saved query (fall back to top-level days, then 7)
+        const savedDays = (config.query && config.query.days) || config.days || 7;
+        document.getElementById('days').value = savedDays;
+
+        // Pre-fill mode from saved query
+        const savedMode = (config.query && config.query.mode) || 'all';
+        const modeRadio = document.querySelector('input[name="mode"][value="' + savedMode + '"]');
+        if (modeRadio) modeRadio.checked = true;
+
+        // Pre-fill List PRs only / skip-analysis from saved query
+        const savedSkipAnalysis = !!(config.query && config.query.skip_analysis);
+        const skipAnalysisCb = document.getElementById('skip-analysis');
+        if (skipAnalysisCb) skipAnalysisCb.checked = savedSkipAnalysis;
+
+        // Gray out Use CodeRabbit when List PRs only is checked — skipping
+        // analysis means we don't fetch/parse CodeRabbit data either.
+        const useCodeRabbitCb = document.getElementById('use-coderabbit');
+        function syncCodeRabbitDisabled() {
+            if (!skipAnalysisCb || !useCodeRabbitCb) return;
+            const disabled = skipAnalysisCb.checked;
+            useCodeRabbitCb.disabled = disabled;
+            const label = useCodeRabbitCb.closest('label');
+            if (label) label.classList.toggle('is-disabled', disabled);
+        }
+        if (skipAnalysisCb) skipAnalysisCb.addEventListener('change', syncCodeRabbitDisabled);
+        syncCodeRabbitDisabled();
+
+        document.getElementById('webhook-url').value = config.webhook_url || '';
+
+        // Team checkbox change → auto-check authors
+        teamsList.addEventListener('change', (e) => {
+            if (e.target.type !== 'checkbox') return;
+            // Reset overrides for this team when it's toggled
+            _teamOverrides[e.target.value] = new Set();
+            syncAuthorsFromTeams();
+            updateSectionCount('teams-list');
+            updateFilterPills();
+        });
+
+        // Author checkbox change → keep team checkboxes in sync.
+        // Invariant: a team box is checked iff EVERY member of that team is checked.
+        function handleAuthorChange(e) {
+            if (e.target.type !== 'checkbox') return;
+            const author = e.target.value;
+            const authorLower = author.toLowerCase();
+
+            // For every team this author belongs to, recompute the team's checked
+            // state based on whether all its members are currently checked.
+            const checkedAuthorSet = new Set(
+                getCheckedValues('authors-list').map(a => a.toLowerCase())
+            );
+
+            Object.entries(config.teams).forEach(([teamName, members]) => {
+                if (!members || members.length === 0) return;
+                const memberLower = members.map(m => m.toLowerCase());
+                if (!memberLower.includes(authorLower)) return; // unrelated team
+                const allChecked = memberLower.every(m => checkedAuthorSet.has(m));
+                const teamCb = document.querySelector(
+                    '#teams-list input[type="checkbox"][value="' + CSS.escape(teamName) + '"]'
+                );
+                if (teamCb && teamCb.checked !== allChecked) {
+                    teamCb.checked = allChecked;
+                }
+            });
+
+            updateSectionCount('authors-list');
+            updateSectionCount('teams-list');
+            updateFilterPills();
+        }
+        authorsList.addEventListener('change', handleAuthorChange);
+
+        // Repo checkbox changes
+        reposList.addEventListener('change', () => {
+            updateSectionCount('repos-list');
+            updateFilterPills();
+        });
+
+        // Single-PR URL field: when populated, show the active banner and
+        // auto-expand the section so the field stays visible. The banner is
+        // a hint to the user that the rest of the sidebar is being ignored.
+        const singlePRSection = document.getElementById('single-pr-section');
+        const singlePRInput = document.getElementById('single-pr-url');
+        const singlePRBanner = document.getElementById('single-pr-active-banner');
+        if (singlePRInput && singlePRBanner && singlePRSection) {
+            const syncSinglePR = () => {
+                const isSet = singlePRInput.value.trim().length > 0;
+                singlePRBanner.classList.toggle('visible', isSet);
+                if (isSet) singlePRSection.open = true;
+            };
+            singlePRInput.addEventListener('input', syncSinglePR);
+        }
+
+        // Store config for later use
+        window._config = config;
+
+        // Name toggle — re-sort + re-render author list, update table cells + pills
+        const nameToggle = document.getElementById('show-names-toggle');
+        if (nameToggle) {
+            nameToggle.addEventListener('change', () => {
+                // Re-render author list sorted by new display labels
+                renderAuthorList();
+                // Rebind author change events after re-render
+                authorsList.addEventListener('change', handleAuthorChange);
+                updateSectionCount('authors-list');
+                // Re-render table author cells (and re-sort if sorting by author)
+                document.querySelectorAll('[data-author-handle]').forEach(cell => {
+                    cell.textContent = authorLabel(cell.dataset.authorHandle);
+                });
+                if (window._reportPRs && window._sortState && window._sortState.col === 'author') {
+                    renderReportTables();
+                }
+                updateFilterPills();
+            });
+        }
+
+        // Initial count display
+        updateSectionCount('teams-list');
+        updateSectionCount('authors-list');
+        updateSectionCount('repos-list');
+        updateFilterPills();
+    }
+
+    function appendLog(text) {
+        if (logOutput.textContent === 'Ready.') {
+            logOutput.textContent = '';
+        }
+        const ts = logTimestamp();
+        logOutput.textContent += '[' + ts + '] ' + text + '\n';
+        logWindow.scrollTop = logWindow.scrollHeight;
+    }
+
+    function clearLog() {
+        logOutput.textContent = '';
+    }
+
+    function getMode() {
+        return document.querySelector('input[name="mode"]:checked').value;
+    }
+
+    // Run report
+    // Cancel button
+    btnCancel.addEventListener('click', () => {
+        if (activeAbort) {
+            activeAbort.abort();
+            appendLog('[cancelled] Query cancelled by user');
+        }
+    });
+
+    btnRun.addEventListener('click', async () => {
+        clearLog();
+        reportSection.hidden = true;
+        emptyState.hidden = true;
+        if (reportTablesContainer) reportTablesContainer.innerHTML = '';
+        qaFocus.innerHTML = '';
+        reportSummary.innerHTML = '';
+        btnRun.disabled = true;
+        btnRun.textContent = 'Running...';
+        activeAbort = new AbortController();
+        setRunningState(true);
+
+        // Single-PR mode: when the URL field is populated, bypass team/author/date
+        // filters entirely and ask the backend to fetch just that one PR.
+        const singlePRUrl = (document.getElementById('single-pr-url').value || '').trim();
+
+        let authors = [];
+        if (!singlePRUrl) {
+            // Query mode — use ONLY the authors checkbox state. (Team checks
+            // auto-check members; manual unchecks override. Sending team names
+            // too would cause the backend to re-resolve teams and undo any
+            // manual unchecks.)
+            authors = [...new Set(getSelectedValues('authors'))];
+
+            if (authors.length === 0) {
+                appendLog('[error] Select at least one team or author (or enter a PR URL above)');
+                btnRun.disabled = false;
+                btnRun.textContent = "Preview Report";
+                setRunningState(false);
+                return;
+            }
+        }
+
+        const params = {
+            mode: getMode(),
+            repos: singlePRUrl ? [] : getSelectedValues('repos'),
+            authors: authors,
+            days: parseInt(document.getElementById('days').value) || 7,
+            webhook_url: document.getElementById('webhook-url').value,
+            skip_analysis: document.getElementById('skip-analysis').checked,
+            skip_webhook: true, // UI is preview-only — Send to channel is a separate action
+            pr_url: singlePRUrl,
+            use_coderabbit: document.getElementById('use-coderabbit').checked
+        };
+
+        // Show "Fetching PRs…" panel — bar appears later when the first PR is picked up
+        showFetchingState(params.skip_analysis);
+
+        // Reset sort state so new reports sort by their default column
+        window._sortState = { col: null, dir: 'desc' };
+
+        // Reset Send button state for new report
+        window._lastReport = null;
+        const _sendBtn = document.getElementById('btn-send-webhook');
+        if (_sendBtn) {
+            _sendBtn.hidden = true;
+            _sendBtn.classList.remove('is-sent');
+            _sendBtn.disabled = false;
+            _sendBtn.textContent = 'Send to Hook';
+        }
+        // Reset Save Query button state for new run
+        const _saveQBtn = document.getElementById('btn-save-query');
+        if (_saveQBtn) {
+            _saveQBtn.classList.remove('is-saved');
+            _saveQBtn.disabled = false;
+            _saveQBtn.textContent = 'Save as Scheduled Query';
+        }
+
+        if (params.pr_url) {
+            appendLog('[ui] Starting preview: single-PR mode — ' + params.pr_url);
+        } else {
+            appendLog('[ui] Starting preview: mode=' + params.mode + ', authors=' + params.authors.join(', '));
+        }
+
+        try {
+            const response = await fetch('/api/run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(params),
+                signal: activeAbort.signal
+            });
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            function processFrames(buf) {
+                const frames = buf.split('\n\n');
+                const remainder = frames.pop(); // incomplete frame stays
+                for (const frame of frames) {
+                    if (!frame.trim()) continue;
+                    const lines = frame.split('\n');
+                    let event = '', dataLines = [];
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) event = line.slice(7);
+                        if (line.startsWith('data: ')) dataLines.push(line.slice(6));
+                    }
+                    const data = dataLines.join('\n');
+                    if (event === 'log') {
+                        appendLog(data);
+                        updateAnalysisProgress(data);
+                    }
+                    if (event === 'report') {
+                        try { renderReport(JSON.parse(data)); }
+                        catch (e) { appendLog('[error] Failed to parse report: ' + e.message); }
+                    }
+                    if (event === 'error') appendLog('[ERROR] ' + data);
+                }
+                return remainder;
+            }
+
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, {stream: true});
+                buffer = processFrames(buffer);
+            }
+            // Process any remaining data in the buffer
+            if (buffer.trim()) {
+                processFrames(buffer + '\n\n');
+            }
+        } catch (err) {
+            appendLog('[error] ' + err.message);
+        }
+
+        btnRun.disabled = false;
+        btnRun.textContent = "Preview Report";
+        setRunningState(false);
+        hideAnalysisProgress();
+    });
+
+    // Send to channel — push the most recently rendered report to the configured webhook
+    const btnSendWebhook = document.getElementById('btn-send-webhook');
+    if (btnSendWebhook) {
+        btnSendWebhook.addEventListener('click', async () => {
+            const url = document.getElementById('webhook-url').value.trim();
+            if (!url) {
+                appendLog('[error] No webhook URL set');
+                return;
+            }
+            if (!window._lastReport) {
+                appendLog('[error] No report to send. Run a preview first.');
+                return;
+            }
+            btnSendWebhook.disabled = true;
+            btnSendWebhook.textContent = 'Sending...';
+            try {
+                const resp = await fetch('/api/send-webhook', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url, report: window._lastReport})
+                });
+                const result = await resp.json();
+                if (!result.ok) {
+                    appendLog('[error] Send failed: ' + (result.error || 'unknown'));
+                    btnSendWebhook.disabled = false;
+                    btnSendWebhook.textContent = 'Send to Hook';
+                    return;
+                }
+                appendLog('[webhook] Report sent to webhook');
+                btnSendWebhook.classList.add('is-sent');
+                btnSendWebhook.textContent = 'Sent ✓';
+                // Stay disabled — re-enabling would risk double-send
+            } catch (err) {
+                appendLog('[error] Send failed: ' + err.message);
+                btnSendWebhook.disabled = false;
+                btnSendWebhook.textContent = 'Send to Hook';
+            }
+        });
+    }
+
+    // ── Webhook URL auto-save on blur ────────────────────────────
+    // No visual indicator — save is silent, log line confirms.
+    const webhookInput = document.getElementById('webhook-url');
+    if (webhookInput) {
+        webhookInput.addEventListener('change', async () => {
+            const newURL = webhookInput.value.trim();
+            const currentInConfig = (window._config && window._config.webhook_url) || '';
+            if (newURL === currentInConfig) return; // no diff, skip save
+
+            try {
+                const resp = await fetch('/api/config/webhook', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({webhook_url: newURL})
+                });
+                const result = await resp.json();
+                if (result.ok) {
+                    if (window._config) window._config.webhook_url = newURL;
+                    appendLog('[config] webhook_url saved');
+                } else {
+                    appendLog('[error] Saving webhook_url: ' + (result.error || 'unknown'));
+                }
+            } catch (err) {
+                appendLog('[error] Saving webhook_url: ' + err.message);
+            }
+        });
+    }
+
+    // ── Save as Scheduled Query ──────────────────────────────────
+    const btnSaveQuery = document.getElementById('btn-save-query');
+    if (btnSaveQuery) {
+        btnSaveQuery.addEventListener('click', async () => {
+            // Gather sidebar state — use ONLY the authors checkbox state.
+            // (Team checks auto-check members; manual unchecks override.)
+            const authorsChecked = [...new Set(getCheckedValues('authors-list'))];
+
+            const body = {
+                repos: getCheckedValues('repos-list'),
+                authors: authorsChecked,
+                days: parseInt(document.getElementById('days').value) || 7,
+                mode: getMode(),
+                skip_analysis: document.getElementById('skip-analysis').checked
+            };
+
+            btnSaveQuery.disabled = true;
+            btnSaveQuery.textContent = 'Saving...';
+            try {
+                const resp = await fetch('/api/config/query', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+                const result = await resp.json();
+                if (result.ok) {
+                    btnSaveQuery.classList.add('is-saved');
+                    btnSaveQuery.textContent = 'Saved ✓';
+                    appendLog('[config] Scheduled query saved (repos=' + body.repos.length +
+                        ', authors=' + body.authors.length + ', days=' + body.days + ', mode=' + body.mode + ')');
+                    // Re-enable after a moment so user can save again if they tweak
+                    setTimeout(() => {
+                        btnSaveQuery.classList.remove('is-saved');
+                        btnSaveQuery.textContent = 'Save as Scheduled Query';
+                        btnSaveQuery.disabled = false;
+                    }, 1800);
+                } else {
+                    btnSaveQuery.disabled = false;
+                    btnSaveQuery.textContent = 'Save as Scheduled Query';
+                    appendLog('[error] Saving query: ' + (result.error || 'unknown'));
+                }
+            } catch (err) {
+                btnSaveQuery.disabled = false;
+                btnSaveQuery.textContent = 'Save as Scheduled Query';
+                appendLog('[error] Saving query: ' + err.message);
+            }
+        });
+    }
+
+    // Test webhook
+    // Reusable webhook test — used by both the manual Test button and the
+    // automatic post-preview check.
+    //   silentEmpty:   when URL is blank, render nothing instead of "No URL"
+    //   silentSuccess: on a successful test, render nothing instead of
+    //                  "Reachable" — used by the auto-test path so users
+    //                  don't get a constant "✓ Reachable" indicator after
+    //                  every preview. Errors still surface in red.
+    async function runWebhookTest(opts) {
+        opts = opts || {};
+        const url = document.getElementById('webhook-url').value;
+        if (!url) {
+            webhookStatus.textContent = opts.silentEmpty ? '' : 'No URL';
+            webhookStatus.className = 'webhook-status' + (opts.silentEmpty ? '' : ' webhook-fail');
+            return false;
+        }
+        // Don't render "Testing..." in silent-success mode — keeps the slot
+        // quiet unless something fails.
+        if (!opts.silentSuccess) {
+            webhookStatus.textContent = 'Testing...';
+            webhookStatus.className = 'webhook-status';
+        }
+
+        try {
+            const resp = await fetch('/api/test-webhook', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url})
+            });
+            const result = await resp.json();
+            if (result.ok) {
+                if (opts.silentSuccess) {
+                    webhookStatus.textContent = '';
+                    webhookStatus.className = 'webhook-status';
+                } else {
+                    webhookStatus.textContent = 'Reachable';
+                    webhookStatus.className = 'webhook-status webhook-ok';
+                }
+                return true;
+            } else {
+                webhookStatus.textContent = result.error || 'Unreachable';
+                webhookStatus.className = 'webhook-status webhook-fail';
+                return false;
+            }
+        } catch (err) {
+            webhookStatus.textContent = err.message;
+            webhookStatus.className = 'webhook-status webhook-fail';
+            return false;
+        }
+    }
+
+    btnTest.addEventListener('click', () => runWebhookTest());
+
+    // Exit
+    btnExit.addEventListener('click', async () => {
+        try {
+            await fetch('/api/exit', {method: 'POST'});
+        } catch (e) {}
+        // Try to close the tab. Browsers block this for tabs the user opened
+        // manually (bookmark / typed URL), but it works for tabs opened by JS.
+        // Fallback: replace the page so it's clearly stopped.
+        try { window.close(); } catch (e) {}
+        // If the tab is still here a moment later, replace contents
+        setTimeout(() => {
+            document.body.innerHTML = '<h1 style="text-align:center;margin-top:40vh;color:#666">Server stopped. You can close this tab.</h1>';
+        }, 100);
+    });
+
+    // Render report
+    // ── Table sort + row navigation ─────────────────────────
+    const RISK_RANK = { HIGH: 4, MEDIUM: 3, LOW: 2, UNKNOWN: 1, '': 0 };
+    const reportTablesContainer = document.getElementById('report-tables-container');
+
+    function buildHeadHTML() {
+        const cols = window._analysisRan
+            ? [['pr','PR'], ['repo','Repo'], ['author','Author'], ['state','State'], ['score','Score'], ['risk','Risk'], ['title','Title']]
+            : [['pr','PR'], ['repo','Repo'], ['author','Author'], ['state','State'], ['title','Title']];
+
+        const state = window._sortState;
+        let html = '<tr>';
+        cols.forEach(([key, label]) => {
+            const isSorted = state.col === key;
+            const arrow = isSorted ? (state.dir === 'asc' ? '▲' : '▼') : '↕';
+            html += '<th class="sortable' + (isSorted ? ' is-sorted' : '') + '" data-sort-col="' + key + '">' +
+                    label + '<span class="sort-indicator">' + arrow + '</span></th>';
+        });
+        html += '</tr>';
+        return html;
+    }
+
+    function buildRowHTML(pr) {
+        const isCR = pr.source === 'coderabbit';
+        const badgeClass = 'risk-badge risk-badge-' + (pr.risk_level || 'unknown').toLowerCase();
+        const baseCells =
+            '<td><a href="' + pr.pr_url + '" target="_blank">#' + pr.pr_number + '</a></td>' +
+            '<td>' + (pr.repo.split('/')[1] || pr.repo) + '</td>' +
+            '<td data-author-handle="' + pr.author + '">' + authorLabel(pr.author) + '</td>' +
+            '<td>' + pr.pr_state + '</td>';
+        // CR rows have no numeric score — show N/A. Otherwise show the score
+        // or '-' for skip-analysis rows.
+        const scoreCell = isCR
+            ? '<td title="CodeRabbit produces no numeric score">N/A</td>'
+            : '<td>' + (pr.risk_score ? pr.risk_score.toFixed(1) : '-') + '</td>';
+        const riskCells = window._analysisRan
+            ? scoreCell + '<td><span class="' + badgeClass + '">' + (pr.risk_level || 'UNKNOWN') + '</span></td>'
+            : '';
+        const titleCell = '<td>' + pr.title + (isCR ? ' <span class="cr-badge" title="Generated by CodeRabbitAI" aria-label="CodeRabbit logo"></span>' : '') + '</td>';
+        return '<tr class="clickable" data-pr-number="' + pr.pr_number + '">' +
+               baseCells + riskCells + titleCell + '</tr>';
+    }
+
+    function renderReportTables() {
+        const all = window._reportPRs || [];
+        const untested = all.filter(p => p.is_untested);
+        const reviewed = all.filter(p => !p.is_untested);
+
+        // Decide whether to split. Always split when there are any untested PRs.
+        // (In "untested" mode all PRs are untested, so only the untested section shows.)
+        const showSplit = untested.length > 0 && reviewed.length > 0;
+        const headHTML = buildHeadHTML();
+
+        let html = '';
+
+        if (untested.length > 0) {
+            const sorted = sortPRs(untested.slice(), window._sortState);
+            html += '<div class="report-group">';
+            if (showSplit) {
+                html += '<h3 class="report-group-heading untested">Merged work that was not tested (' + untested.length + ')</h3>';
+                html += '<p class="report-group-subheading untested-sub">Merged PRs with no QA team approval — review first.</p>';
+            }
+            html += '<table><thead>' + headHTML + '</thead><tbody>';
+            sorted.forEach(pr => { html += buildRowHTML(pr); });
+            html += '</tbody></table></div>';
+        }
+
+        if (reviewed.length > 0) {
+            const sorted = sortPRs(reviewed.slice(), window._sortState);
+            html += '<div class="report-group">';
+            if (showSplit) {
+                html += '<h3 class="report-group-heading">Open or tested work (' + reviewed.length + ')</h3>';
+                html += '<p class="report-group-subheading reviewed-sub">PRs not yet merged or already tested.</p>';
+            }
+            html += '<table><thead>' + headHTML + '</thead><tbody>';
+            sorted.forEach(pr => { html += buildRowHTML(pr); });
+            html += '</tbody></table></div>';
+        }
+
+        reportTablesContainer.innerHTML = html;
+    }
+
+    function sortPRs(prs, state) {
+        const dir = state.dir === 'asc' ? 1 : -1;
+        const col = state.col;
+        return prs.sort((a, b) => {
+            let va, vb;
+            switch (col) {
+                case 'pr':     va = a.pr_number; vb = b.pr_number; break;
+                case 'repo':   va = (a.repo || '').toLowerCase(); vb = (b.repo || '').toLowerCase(); break;
+                case 'author': va = authorLabel(a.author).toLowerCase(); vb = authorLabel(b.author).toLowerCase(); break;
+                case 'state':  va = (a.pr_state || '').toLowerCase(); vb = (b.pr_state || '').toLowerCase(); break;
+                case 'score':  va = a.risk_score || 0; vb = b.risk_score || 0; break;
+                case 'risk':   va = RISK_RANK[a.risk_level] || 0; vb = RISK_RANK[b.risk_level] || 0; break;
+                case 'title':  va = (a.title || '').toLowerCase(); vb = (b.title || '').toLowerCase(); break;
+                default:       va = a.pr_number; vb = b.pr_number;
+            }
+            if (va < vb) return -1 * dir;
+            if (va > vb) return 1 * dir;
+            return 0;
+        });
+    }
+
+    // Header click → toggle sort. Both tables share sort state and re-render together.
+    reportTablesContainer.addEventListener('click', (e) => {
+        // Sort-header click
+        const th = e.target.closest('th.sortable');
+        if (th) {
+            const col = th.dataset.sortCol;
+            if (!col || !window._reportPRs) return;
+            const state = window._sortState;
+            if (state.col === col) {
+                state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                state.col = col;
+                state.dir = (col === 'risk' || col === 'score' || col === 'pr') ? 'desc' : 'asc';
+            }
+            renderReportTables();
+            return;
+        }
+
+        // Row click → scroll to QA drilldown (ignore clicks on links)
+        if (e.target.closest('a')) return;
+        const tr = e.target.closest('tr.clickable');
+        if (!tr || !tr.dataset.prNumber) return;
+        const target = document.getElementById('drilldown-pr-' + tr.dataset.prNumber);
+        if (!target) return;
+        if (target.tagName.toLowerCase() === 'details') target.open = true;
+        target.scrollIntoView({behavior: 'smooth', block: 'start'});
+        target.classList.remove('flash');
+        void target.offsetWidth;
+        target.classList.add('flash');
+    });
+
+    function renderReport(report) {
+        reportSection.hidden = false;
+        emptyState.hidden = true;
+        hideAnalysisProgress();
+
+        // Stash for Send to channel
+        window._lastReport = report;
+        const _sendBtn = document.getElementById('btn-send-webhook');
+        const _whInput = document.getElementById('webhook-url');
+        if (_sendBtn) {
+            const hasURL = _whInput && _whInput.value.trim();
+            _sendBtn.hidden = false;  // always visible after a run
+            _sendBtn.disabled = !hasURL;
+            _sendBtn.title = hasURL ? '' : 'Configure a webhook URL to send the report';
+
+            if (hasURL) {
+                // Auto-test silently — only surface errors.
+                runWebhookTest({silentEmpty: true, silentSuccess: true}).then(ok => {
+                    if (!ok) {
+                        appendLog('[webhook] Not reachable — fix the URL before clicking Send');
+                    }
+                });
+            }
+        }
+
+        // Detect whether risk analysis ran. The Go skeleton report (skip_analysis
+        // mode) leaves risk_level empty and risk_score zero. Real analysis sets
+        // risk_level to HIGH/MEDIUM/LOW/UNKNOWN. We treat "any non-empty risk_level
+        // OR any non-zero risk_score" as proof analysis ran.
+        // Note: we cannot rely on `dimensions` having keys — the Go struct always
+        // marshals all 7 fields even when zero.
+        const analysisRan = report.prs.some(p => {
+            if (typeof p.risk_score === 'number' && p.risk_score > 0) return true;
+            if (p.risk_level && p.risk_level !== '') return true;
+            return false;
+        });
+
+        // Summary bar — hide Overall/High/Medium/Low pills when no analysis ran
+        const s = report.summary;
+        if (analysisRan) {
+            reportSummary.innerHTML =
+                '<span class="risk-high">High: ' + s.high_risk + '</span>' +
+                '<span class="risk-medium">Medium: ' + s.medium_risk + '</span>' +
+                '<span class="risk-low">Low: ' + s.low_risk + '</span>' +
+                '<span>Total: ' + s.total_prs + '</span>';
+        } else {
+            reportSummary.innerHTML = '<span>Total: ' + s.total_prs + '</span>';
+        }
+
+        // Stash for sort + row click navigation
+        window._reportPRs = report.prs.slice();
+        window._analysisRan = analysisRan;
+        if (!window._sortState) window._sortState = { col: null, dir: 'desc' };
+        // Default sort: by risk desc when analysis ran, by pr number desc otherwise
+        if (window._sortState.col === null) {
+            window._sortState.col = analysisRan ? 'risk' : 'pr';
+            window._sortState.dir = 'desc';
+        }
+
+        renderReportTables();
+
+        // Reveal the CodeRabbit legend if any row is CR-sourced.
+        const crLegend = document.getElementById('report-cr-legend');
+        if (crLegend) {
+            const anyCR = report.prs.some(p => p.source === 'coderabbit');
+            crLegend.hidden = !anyCR;
+        }
+
+        // QA drilldowns for all analyzed PRs
+        qaFocus.innerHTML = '';
+        const drilldownPRs = report.prs.filter(p => p.risk_level && p.risk_reason);
+        if (drilldownPRs.length > 0) {
+            qaFocus.innerHTML = '<h2 class="qa-focus-heading">QA Focus Areas</h2>';
+            drilldownPRs.forEach(pr => {
+                const riskClass = 'risk-' + pr.risk_level.toLowerCase();
+                const drilldownLevel = 'drilldown-' + pr.risk_level.toLowerCase();
+                const isLow = pr.risk_level === 'LOW' || pr.risk_level === 'UNKNOWN';
+                const isCR = pr.source === 'coderabbit';
+                let html = '<details class="drilldown ' + drilldownLevel + '" id="drilldown-pr-' + pr.pr_number + '"' + (isLow ? '' : ' open') + '>';
+                html += '<summary class="' + riskClass + '">[' + pr.risk_level + '] #' + pr.pr_number + ' — ' + pr.title +
+                        (isCR ? ' <span class="cr-badge" title="Generated by CodeRabbitAI" aria-label="CodeRabbit logo"></span>' : '') + '</summary>';
+
+                if (pr.areas_affected && pr.areas_affected.length) {
+                    html += '<div class="areas">';
+                    pr.areas_affected.forEach(a => { html += '<span class="area-tag">' + a + '</span>'; });
+                    html += '</div>';
+                }
+
+                if (pr.risk_reason) {
+                    html += '<div class="reason">' + pr.risk_reason + '</div>';
+                }
+
+                if (pr.qa_recommendations && pr.qa_recommendations.length) {
+                    html += '<ol>';
+                    pr.qa_recommendations.forEach(rec => { html += '<li>' + rec + '</li>'; });
+                    html += '</ol>';
+                }
+
+                if (pr.test_approach) {
+                    html += '<div class="test-approach">' + pr.test_approach + '</div>';
+                }
+
+                // Dimensions block — show numeric for agent-sourced rows, N/A for CR.
+                html += '<div style="margin-top:8px;font-size:12px;color:#888">';
+                if (isCR) {
+                    html += 'Dimensions: N/A (CodeRabbit produces no dimensional scores)';
+                } else if (pr.dimensions) {
+                    const dims = pr.dimensions;
+                    html += 'Dimensions: blast=' + dims.blast_radius + ' complexity=' + dims.complexity + ' regression=' + dims.regression_surface;
+                    html += ' data_integrity=' + dims.data_integrity + ' security=' + dims.security_surface + ' infra=' + dims.infra_config;
+                }
+                html += '</div>';
+
+                if (isCR) {
+                    html += '<div class="cr-footer">Generated by CodeRabbitAI</div>';
+                }
+
+                html += '</details>';
+                qaFocus.innerHTML += html;
+            });
+        }
+
+        appendLog('[done] Report rendered — ' + report.prs.length + ' PRs analyzed');
+    }
+
+    // ── Schedule modal ───────────────────────────────────
+    const scheduleBtn = document.getElementById('btn-schedule');
+    const scheduleModal = document.getElementById('schedule-modal');
+    const scheduleCancel = document.getElementById('schedule-cancel');
+    const scheduleSave = document.getElementById('schedule-save');
+    const scheduleDisable = document.getElementById('schedule-disable');
+    const scheduleEnabledCb = document.getElementById('schedule-enabled');
+    const scheduleFreq = document.getElementById('schedule-freq');
+    const scheduleTime = document.getElementById('schedule-time');
+    const scheduleDay = document.getElementById('schedule-day');
+    const scheduleDayField = document.getElementById('schedule-day-field');
+    const scheduleFormBody = document.getElementById('schedule-form-body');
+    const scheduleStatusDot = document.getElementById('schedule-status-dot');
+    const scheduleStatusText = document.getElementById('schedule-status-text');
+    const scheduleStatusNext = document.getElementById('schedule-status-next');
+    const scheduleError = document.getElementById('schedule-error');
+    const scheduleErrorMsg = document.getElementById('schedule-error-msg');
+    const scheduleIndicator = document.getElementById('schedule-indicator');
+    const scheduleIndicatorText = document.getElementById('schedule-indicator-text');
+
+    // ── Time picker (text inputs + chevrons) ────────────
+    // Two number inputs (hour 0-23, minute 0-59). The hidden #schedule-time
+    // input keeps the contract with the existing save JS (HH:MM 24h).
+    const _scheduleTimeInput = document.getElementById('schedule-time');
+    const _hourInput = document.getElementById('schedule-hour-input');
+    const _minuteInput = document.getElementById('schedule-minute-input');
+
+    function _pad2(n) { return String(n).padStart(2, '0'); }
+
+    function _readField(input, max) {
+        const raw = parseInt(input.value, 10);
+        if (Number.isNaN(raw)) return 0;
+        return ((raw % max) + max) % max;
+    }
+
+    function _writeField(input, value, max) {
+        const v = ((Math.round(value) % max) + max) % max;
+        input.value = _pad2(v);
+        return v;
+    }
+
+    function _writeHiddenTime() {
+        const h = _readField(_hourInput, 24);
+        const m = _readField(_minuteInput, 60);
+        _scheduleTimeInput.value = _pad2(h) + ':' + _pad2(m);
+    }
+
+    function _stepField(field, delta) {
+        const max = field === 'hour' ? 24 : 60;
+        const input = field === 'hour' ? _hourInput : _minuteInput;
+        const cur = _readField(input, max);
+        _writeField(input, cur + delta, max);
+        _writeHiddenTime();
+    }
+
+    function syncTimePickerFromInput() {
+        const v = _scheduleTimeInput.value || '08:00';
+        const m = /^(\d{1,2}):(\d{1,2})$/.exec(v);
+        const hh = m ? Math.max(0, Math.min(23, parseInt(m[1], 10) || 0)) : 8;
+        const mm = m ? Math.max(0, Math.min(59, parseInt(m[2], 10) || 0)) : 0;
+        _hourInput.value = _pad2(hh);
+        _minuteInput.value = _pad2(mm);
+        // Ensure hidden input is normalized to "HH:MM"
+        _scheduleTimeInput.value = _pad2(hh) + ':' + _pad2(mm);
+    }
+    // Initial sync (modal might open before applyScheduleState runs)
+    syncTimePickerFromInput();
+
+    // Wire direct typing — normalize on blur/change so out-of-range wraps,
+    // and keep the hidden input in sync as the user types.
+    function _bindFieldEvents(input, max) {
+        input.addEventListener('input', () => {
+            // Update hidden input live without forcing reformatting (so the user
+            // can still be mid-typing a 2-digit number without their caret jumping).
+            _writeHiddenTime();
+        });
+        input.addEventListener('change', () => {
+            const cur = _readField(input, max);
+            _writeField(input, cur, max);
+            _writeHiddenTime();
+        });
+        input.addEventListener('blur', () => {
+            const cur = _readField(input, max);
+            _writeField(input, cur, max);
+            _writeHiddenTime();
+        });
+    }
+    _bindFieldEvents(_hourInput, 24);
+    _bindFieldEvents(_minuteInput, 60);
+
+    // Wire chevron buttons (with press-and-hold repeat)
+    document.querySelectorAll('.time-picker-chevron').forEach(btn => {
+        const field = btn.dataset.field; // "hour" or "minute"
+        const delta = btn.classList.contains('time-picker-chevron-up') ? 1 : -1;
+        let holdTimer = null;
+        let repeatTimer = null;
+        function start(e) {
+            e.preventDefault();
+            _stepField(field, delta);
+            // After 350ms, start repeating every 90ms
+            holdTimer = setTimeout(() => {
+                repeatTimer = setInterval(() => _stepField(field, delta), 90);
+            }, 350);
+        }
+        function stop() {
+            clearTimeout(holdTimer);
+            clearInterval(repeatTimer);
+            holdTimer = null;
+            repeatTimer = null;
+        }
+        btn.addEventListener('pointerdown', start);
+        btn.addEventListener('pointerup', stop);
+        btn.addEventListener('pointerleave', stop);
+        btn.addEventListener('pointercancel', stop);
+        btn.addEventListener('blur', stop);
+    });
+
+    let _scheduleState = null;
+
+    function applyScheduleState(state) {
+        _scheduleState = state;
+        // Modal form values
+        scheduleEnabledCb.checked = !!state.enabled;
+        scheduleFreq.value = state.frequency || 'daily';
+        scheduleTime.value = state.time || '08:00';
+        syncTimePickerFromInput();
+        if (state.weekday) scheduleDay.value = state.weekday;
+        scheduleDayField.hidden = scheduleFreq.value !== 'weekly';
+        scheduleFormBody.classList.toggle('disabled', !scheduleEnabledCb.checked);
+
+        // Status row
+        const installed = state.status && state.status.installed;
+        const enabled = !!state.enabled;
+        scheduleError.hidden = true;
+
+        if (installed && enabled) {
+            scheduleStatusDot.className = 'schedule-status-dot active';
+            scheduleStatusText.textContent = 'Active';
+            scheduleStatusNext.textContent = describeFrequency(state) + ' at ' + (state.time || '');
+            scheduleDisable.hidden = false;
+        } else if (enabled && !installed) {
+            scheduleStatusDot.className = 'schedule-status-dot warning';
+            scheduleStatusText.textContent = 'Active in config but not installed on this machine';
+            scheduleStatusNext.textContent = '';
+            scheduleDisable.hidden = false;
+        } else {
+            scheduleStatusDot.className = 'schedule-status-dot';
+            scheduleStatusText.textContent = 'Disabled';
+            scheduleStatusNext.textContent = '';
+            scheduleDisable.hidden = true;
+        }
+
+        // Header indicator
+        if (installed && enabled) {
+            scheduleIndicator.hidden = false;
+            scheduleIndicatorText.textContent = (state.time || '') + ' ' + (state.frequency || 'daily');
+        } else {
+            scheduleIndicator.hidden = true;
+        }
+    }
+
+    function describeFrequency(state) {
+        switch (state.frequency) {
+            case 'weekdays': return 'Mon-Fri';
+            case 'weekly': return 'Weekly on ' + (state.weekday || 'friday');
+            case 'daily':
+            default: return 'Daily';
+        }
+    }
+
+    async function refreshScheduleState() {
+        try {
+            const resp = await fetch('/api/schedule');
+            const state = await resp.json();
+            applyScheduleState(state);
+        } catch (err) {
+            // Non-fatal — leave the UI in its previous state
+        }
+    }
+
+    scheduleBtn.addEventListener('click', () => {
+        refreshScheduleState();
+        scheduleModal.classList.add('active');
+    });
+
+    scheduleCancel.addEventListener('click', () => {
+        scheduleModal.classList.remove('active');
+    });
+
+    scheduleModal.addEventListener('click', (e) => {
+        if (e.target === scheduleModal) scheduleModal.classList.remove('active');
+    });
+
+    scheduleEnabledCb.addEventListener('change', () => {
+        scheduleFormBody.classList.toggle('disabled', !scheduleEnabledCb.checked);
+    });
+
+    scheduleFreq.addEventListener('change', () => {
+        scheduleDayField.hidden = scheduleFreq.value !== 'weekly';
+    });
+
+    scheduleSave.addEventListener('click', async () => {
+        scheduleError.hidden = true;
+
+        if (!scheduleEnabledCb.checked) {
+            // Saving with toggle off = same as disable
+            await disableScheduleAction();
+            return;
+        }
+
+        const body = {
+            time: scheduleTime.value,
+            frequency: scheduleFreq.value,
+            weekday: scheduleFreq.value === 'weekly' ? scheduleDay.value : '',
+            tz: Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+        };
+
+        scheduleSave.disabled = true;
+        scheduleSave.textContent = 'Installing...';
+
+        try {
+            const resp = await fetch('/api/schedule/enable', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const result = await resp.json();
+            if (!result.ok) {
+                scheduleError.hidden = false;
+                scheduleErrorMsg.textContent = result.error || 'Unknown error';
+                return;
+            }
+            appendLog('[schedule] Installed: ' + body.frequency + ' at ' + body.time);
+            await refreshScheduleState();
+            scheduleModal.classList.remove('active');
+        } catch (err) {
+            scheduleError.hidden = false;
+            scheduleErrorMsg.textContent = err.message;
+        } finally {
+            scheduleSave.disabled = false;
+            scheduleSave.textContent = 'Save Schedule';
+        }
+    });
+
+    async function disableScheduleAction() {
+        scheduleDisable.disabled = true;
+        scheduleSave.disabled = true;
+        try {
+            const resp = await fetch('/api/schedule/disable', {method: 'POST'});
+            const result = await resp.json();
+            if (!result.ok) {
+                scheduleError.hidden = false;
+                scheduleErrorMsg.textContent = result.error || 'Unknown error';
+                return;
+            }
+            appendLog('[schedule] Disabled');
+            await refreshScheduleState();
+            scheduleModal.classList.remove('active');
+        } catch (err) {
+            scheduleError.hidden = false;
+            scheduleErrorMsg.textContent = err.message;
+        } finally {
+            scheduleDisable.disabled = false;
+            scheduleSave.disabled = false;
+        }
+    }
+
+    scheduleDisable.addEventListener('click', disableScheduleAction);
+
+    // Init
+    loadConfig();
+    refreshScheduleState();
+    </script>
+</body>
+</html>

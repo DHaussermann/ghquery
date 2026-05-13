@@ -1,0 +1,45 @@
+# ── Binary ──────────────────────────────────────────────────────
+ghquery
+ghquery-*
+
+# ── Config (contains secrets: github_token, webhook_url) ────────
+config.yaml
+
+# ── Session artefacts & scratch folders ─────────────────────────
+bk/
+stash/
+risk-compare/
+alternate/
+examples/
+UI-bugs/
+prompt
+deployment-details
+
+# ── Runtime output ───────────────────────────────────────────────
+*.json
+*.log
+
+# ── Demo artefacts (generated, not for repo) ─────────────────────
+demo-dom.html
+demo.html
+
+# ── Claude Code (plans, memory, settings) ───────────────────────
+# Keep .claude/agents/ — the risk-analyzer skill is part of the product.
+.claude/settings.local.json
+.claude/plans/
+.claude/projects/
+
+# ── macOS ────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+
+# ── IDE ──────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Go ───────────────────────────────────────────────────────────
+# go.sum is intentionally tracked (reproducible builds)
+# Vendor directory if used
+vendor/

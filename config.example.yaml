@@ -1,0 +1,97 @@
+# =============================================================================
+#  ghquery — example config
+# =============================================================================
+#  Copy this file to config.yaml and edit to match your team.
+#
+#  Config has four sections:
+#    catalog:   What's available (teams, repos, names) — your roster
+#    query:     What to run (the saved scheduled query)
+#    schedule:  When to run
+#    + connection keys: webhook_url, github_token
+#
+#  IMPORTANT: comments in config.yaml are stripped on every save by the
+#  underlying YAML writer. Keep this file as your reference and only edit
+#  config.yaml when you want to make permanent changes.
+# =============================================================================
+
+
+# ── CATALOG ──────────────────────────────────────────────────────────────────
+# Define your team's roster here. The UI populates checkboxes and dropdowns
+# from this section. None of these values are overwritten when you click
+# "Save as Scheduled Query" in the UI.
+catalog:
+
+  # Repos available to query. Add or remove as needed.
+  repos:
+    - org/repo-one
+    - org/repo-two
+    - org/repo-three
+
+  # Team definitions. Each team has a list of GitHub handles.
+  # A handle can appear on multiple teams.
+  # Team names are case-insensitive when used in queries.
+  teams:
+    Reliability:
+      - member-2
+      - member-1
+      - cpoile
+    QA:
+      - yourhandle
+      - qa-member-2
+    # Add more teams below…
+    # MyTeam:
+    #   - alice
+    #   - bob
+
+  # Optional: real names shown when the "Show names" toggle is on in the UI.
+  # Empty string falls back to the GitHub handle.
+  # The keys here MUST match the GitHub handles exactly (case-insensitive).
+  # If a handle isn't listed, the handle itself is shown.
+  author_names:
+    member-1: Member One
+    yourhandle: Your Name
+    member-2: Member Two
+    # alice: Alice Anderson
+    # bob: Bob Brown
+
+
+# ── SAVED QUERY ──────────────────────────────────────────────────────────────
+# This is what the daily scheduled run executes. Updated by the UI's
+# "Save as Scheduled Query" button after a Preview Report renders.
+# You can also edit by hand — the next scheduled run will pick up the change.
+query:
+  repos:
+    - org/repo-one
+
+  # GitHub handles only — team names are resolved to members at save time.
+  authors:
+    - member-1
+
+  days: 7              # how far back to look (1–14)
+  mode: all            # all  |  untested  (untested = merged PRs without QA team approval)
+  skip_analysis: false # true to list PRs without risk analysis (faster)
+
+
+# ── SCHEDULE ─────────────────────────────────────────────────────────────────
+# Daily/weekly run timing. Managed by the UI's Schedule modal.
+# `enabled: true` means the OS-level scheduler (launchd / Task Scheduler) is
+# active for this machine.
+schedule:
+  enabled: false
+  frequency: daily     # daily  |  weekdays  |  weekly
+  time: "08:00"        # 24h, local time
+  weekday: ""          # only used when frequency: weekly  (e.g. "friday")
+  tz: "America/Los_Angeles"
+
+
+# ── CONNECTIONS ──────────────────────────────────────────────────────────────
+
+# GitHub Personal Access Token. Required for >60 API calls/hour.
+# Generate at https://github.com/settings/tokens — no scopes needed for public repos.
+# If your org uses SAML SSO, click "Configure SSO" on the token to authorize it.
+github_token: ""
+
+# incoming webhook URL.
+# Create one at: System Console → Integrations → Incoming Webhooks → Add.
+# Leave blank to skip webhook delivery (terminal/UI output only).
+webhook_url: ""
