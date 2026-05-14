@@ -19,9 +19,10 @@ deployment-details
 *.json
 *.log
 
-# ── Demo artefacts (generated, not for repo) ─────────────────────
+# ── Demo artefacts & internal planning (not for repo) ────────────
 demo-dom.html
 demo.html
+next-version-features.md
 
 # ── Claude Code (plans, memory, settings) ───────────────────────
 # Keep .claude/agents/ — the risk-analyzer skill is part of the product.
