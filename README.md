@@ -97,7 +97,7 @@ cp config.example.yaml config.yaml
 #    catalog.teams: your team's GitHub handles
 
 # 3. Launch the web UI
-./ghquery web
+./ghquery ui
 # Opens http://localhost:3000 in your browser
 
 # 4. Or run from the CLI
@@ -150,7 +150,7 @@ webhook_url:  ""
 ### Web UI
 
 ```bash
-./ghquery web
+./ghquery ui
 ```
 
 Opens a browser UI where you can:
@@ -222,4 +222,3 @@ When the **Use CodeRabbit** toggle is on, ghquery checks each PR's description f
 - [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) — architecture, pipeline diagrams, risk scoring details
 - [`SYSTEM_REQUIREMENTS.md`](SYSTEM_REQUIREMENTS.md) — full prerequisite checklist
 - [`config.example.yaml`](config.example.yaml) — fully-commented configuration template
-- [`next-version-features.md`](next-version-features.md) — roadmap
