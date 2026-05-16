@@ -79,6 +79,7 @@ func (h *handler) runPipeline(w http.ResponseWriter, r *http.Request) {
 		WebhookURL:    req.WebhookURL,
 		PRUrl:         req.PRUrl,
 		UseCodeRabbit: req.UseCodeRabbit,
+		ClaudePath:    viper.GetString("claude_path"),
 	}
 
 	start := time.Now()

@@ -95,6 +95,7 @@ func runAll(cmd *cobra.Command, args []string) error {
 		DryRun:       runDryRun,
 		SaveReport:   runOutputFile,
 		SkipAnalysis: skipAnalysis,
+		ClaudePath:   viper.GetString("claude_path"),
 	}
 
 	report, err := pipeline.Execute(

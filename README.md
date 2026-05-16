@@ -59,28 +59,47 @@ Required only if you want the report posted to a chat channel. Any Slack-compati
 
 ## Installation
 
-### macOS (build from source)
+Pre-compiled binaries for macOS, Windows, and Linux are available on the
+[Releases page](https://github.com/DHaussermann/ghquery/releases).
+Download the binary for your platform, then run `ghquery init` to verify
+prerequisites and create a starter `config.yaml`.
 
-Go 1.23 or later is required.
+### macOS
+
+Download `ghquery-darwin-arm64` (Apple Silicon) or `ghquery-darwin-amd64`
+(Intel) from the Releases page, then:
 
 ```bash
-git clone https://github.com/yourhandle/ghquery.git
-cd ghquery
-go build -o ghquery .
+chmod +x ghquery-darwin-arm64
+./ghquery-darwin-arm64 init
 ```
 
-Verify:
+Or build from source (Go 1.23+ required):
+
 ```bash
-./ghquery --help
+git clone https://github.com/DHaussermann/ghquery.git
+cd ghquery
+go build -o ghquery .
+./ghquery init
 ```
 
 ### Windows
 
-> **Pre-compiled Windows binaries are coming shortly via GitHub Actions.** Until then, Windows users with Go installed can follow the macOS build steps above in PowerShell or Git Bash.
+Download `ghquery-windows-amd64.exe` from the Releases page, open
+PowerShell in the same folder, and run:
+
+```powershell
+.\ghquery-windows-amd64.exe init
+```
 
 ### Linux
 
-Same as macOS. Go 1.23+, then `go build -o ghquery .`.
+Download `ghquery-linux-amd64` from the Releases page, then:
+
+```bash
+chmod +x ghquery-linux-amd64
+./ghquery-linux-amd64 init
+```
 
 ---
 

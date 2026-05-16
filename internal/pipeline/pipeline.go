@@ -27,6 +27,7 @@ type RunParams struct {
 	SkipWebhook   bool   // when true, never send to webhook even if WebhookURL is set (UI preview mode)
 	PRUrl         string // single-PR mode: when set, fetch only this PR and bypass team/author/date/mode filters
 	UseCodeRabbit bool   // when true, attempt to read CodeRabbit's "Change Impact" comment on each PR; PRs that have one skip the agent entirely
+	ClaudePath    string // optional explicit path to claude binary (overrides PATH lookup)
 }
 
 // Execute runs the full pipeline: fetch → filter → analyze → webhook.
@@ -129,6 +130,10 @@ func Execute(ctx context.Context, params RunParams, log io.Writer, token string,
 	}
 
 	// Phase 3: Analyze (or skip)
+	// Apply any claude_path so the invoker can find claude even when it isn't
+	// on PATH (e.g. discovered and saved by `ghquery init`).
+	analysis.SetClaudePath(params.ClaudePath)
+
 	var report *analysis.RiskReport
 	if params.SkipAnalysis {
 		fmt.Fprintf(log, "[analyze] Skipped — listing PRs only\n")

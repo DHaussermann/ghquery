@@ -22,6 +22,18 @@ const (
 	maxConcurrent = 3
 )
 
+// claudeBin is the path to the claude executable. Defaults to "claude" (PATH
+// lookup). Override via SetClaudePath when a config-specified path is available
+// (e.g. claude installed outside PATH and found by `ghquery init`).
+var claudeBin = "claude"
+
+// SetClaudePath overrides the claude executable path used for all agent calls.
+func SetClaudePath(path string) {
+	if path != "" {
+		claudeBin = path
+	}
+}
+
 // passAPrompt is the constrained enumeration prompt — Pass A's only job is
 // to list new code branches and what tests cover. No scoring, no recommendations.
 // The granularity is intentionally aggressive: each error return, each select arm,
@@ -66,7 +78,7 @@ func Analyze(ctx context.Context, prs []gh.PRData, log io.Writer) (*RiskReport, 
 	// Pre-flight: verify `claude` is on PATH before spawning agents.
 	// If not, surface a single clear error at the top of the log so the user
 	// notices immediately instead of seeing N identical per-agent failures.
-	if claudePath, err := exec.LookPath("claude"); err != nil {
+	if claudePath, err := exec.LookPath(claudeBin); err != nil {
 		fmt.Fprintf(log, "[ERROR] claude CLI not found on PATH — risk analysis will FAIL for all %d PRs\n", len(prs))
 		fmt.Fprintf(log, "[ERROR] Install: npm install -g @anthropic-ai/claude-code\n")
 		fmt.Fprintf(log, "[ERROR] If running via launchd/cron, ensure `ghquery schedule install` was run from a shell where `which claude` works\n")
@@ -191,7 +203,7 @@ func analyzeSinglePR(ctx context.Context, agentPrompt string, pr gh.PRData, log 
 	passBCtx, cancel := context.WithTimeout(ctx, passBTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(passBCtx, "claude", "-p", "--output-format", "json")
+	cmd := exec.CommandContext(passBCtx, claudeBin, "-p", "--output-format", "json")
 	cmd.Stdin = strings.NewReader(prompt)
 
 	var stdout, stderr bytes.Buffer
@@ -219,7 +231,7 @@ func enumerateBranches(ctx context.Context, pr gh.PRData) (*BranchEnumeration, e
 	passACtx, cancel := context.WithTimeout(ctx, passATimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(passACtx, "claude", "-p", "--output-format", "json")
+	cmd := exec.CommandContext(passACtx, claudeBin, "-p", "--output-format", "json")
 	cmd.Stdin = strings.NewReader(prompt)
 
 	var stdout, stderr bytes.Buffer
