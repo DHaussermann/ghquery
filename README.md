@@ -123,7 +123,7 @@ prerequisites.
 ## Quick start
 
 ```bash
-# 1. Copy the example config
+# 1. Copy the example config (not needed if you used `ghquery init` — it already created config.yaml)
 cp config.example.yaml config.yaml
 
 # 2. Edit config.yaml — minimum required fields:
@@ -205,13 +205,7 @@ Opens a browser UI where you can:
 
 ### Scheduling
 
-```bash
-./ghquery schedule install    # registers with OS scheduler (run from a terminal where claude is on $PATH)
-./ghquery schedule uninstall  # removes the scheduled job
-./ghquery schedule status     # shows next scheduled run time
-```
-
-> **macOS note:** launchd runs with a minimal `$PATH`. `schedule install` captures your current shell's `$PATH` into the launchd plist automatically so `claude` is found when the job fires.
+Use the **Schedule** button in the web UI to configure and enable scheduled runs. The UI handles the OS-level setup for you. Run `./ghquery schedule --help` if you need CLI access to scheduling options.
 
 ---
 
