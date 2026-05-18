@@ -103,6 +103,23 @@ chmod +x ghquery-linux-amd64
 
 ---
 
+### What `ghquery init` does
+
+Running `ghquery init` in the same folder as your binary performs three things:
+
+1. **Checks for the Claude Code CLI** — looks for `claude` on your PATH. If not
+   found there, it searches common install locations automatically. If found
+   off-PATH, it saves the path to `config.yaml` so ghquery can use it without
+   any manual PATH changes.
+2. **Creates `config.yaml`** — if no config file exists in the current folder,
+   it writes a minimal starter template for you to fill in.
+3. **Prints next steps** — tells you exactly what to edit before your first run.
+
+If `config.yaml` already exists, init skips creating it and just checks
+prerequisites.
+
+---
+
 ## Quick start
 
 ```bash
