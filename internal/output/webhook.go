@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -250,12 +251,31 @@ func buildHeader(report *analysis.RiskReport) string {
 	return sb.String()
 }
 
+func riskOrder(level analysis.RiskLevel) int {
+	switch level {
+	case analysis.RiskHigh:
+		return 0
+	case analysis.RiskMedium:
+		return 1
+	case analysis.RiskLow:
+		return 2
+	default:
+		return 3
+	}
+}
+
 func buildChangesTable(prs []analysis.PRRisk) string {
+	sorted := make([]analysis.PRRisk, len(prs))
+	copy(sorted, prs)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return riskOrder(sorted[i].RiskLevel) < riskOrder(sorted[j].RiskLevel)
+	})
+
 	var sb strings.Builder
 	sb.WriteString("| Risk | Score | PR | Author | State | Summary |\n")
 	sb.WriteString("|:----:|:-----:|:---|:-------|:------|:--------|\n")
 
-	for _, pr := range prs {
+	for _, pr := range sorted {
 		title := pr.Title
 		if len(title) > 45 {
 			title = title[:42] + "..."
@@ -271,7 +291,8 @@ func buildChangesTable(prs []analysis.PRRisk) string {
 		} else {
 			scoreCell = fmt.Sprintf("%.1f", pr.RiskScore)
 		}
-		sb.WriteString(fmt.Sprintf("| **%s** | %s | [#%d: %s](%s)%s | @%s | %s | %s |\n",
+		sb.WriteString(fmt.Sprintf("| %s **%s** | %s | [#%d: %s](%s)%s | @%s | %s | %s |\n",
+			riskIcon(pr.RiskLevel),
 			shortLevel(pr.RiskLevel),
 			scoreCell,
 			pr.PRNumber, title, pr.PRURL, titleSuffix,
