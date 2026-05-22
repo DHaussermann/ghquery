@@ -24,7 +24,7 @@
 ┌──────────────────────────────────────────────────────────────────┐
 │                Phase 2: Two-Pass Analysis (max 3 concurrent)      │
 │                                                                   │
-│  Pass A — Branch Enumeration (60s)                                │
+│  Pass A — Branch Enumeration (90s)                                │
 │  ┌─────────────────────────────────────────────────────────────┐  │
 │  │  Constrained Claude call: list every new code branch and    │  │
 │  │  what each test change covers. No scoring, no commentary.   │  │
@@ -32,7 +32,7 @@
 │  └─────────────────────────────────────────────────────────────┘  │
 │         │  Pre-computed branch list (anchors scoring step)        │
 │         ▼                                                         │
-│  Pass B — Risk Scoring (90s)                                      │
+│  Pass B — Risk Scoring (120s)                                     │
 │  ┌─────────────────────────────────────────────────────────────┐  │
 │  │  Full risk-analyzer skill + Pass A output as authoritative  │  │
 │  │  branch list. Agent scores 6 dimensions, derives risk tier. │  │
@@ -108,13 +108,13 @@ For any PR that has parsed CodeRabbit data (and the toggle is on), **Pass A and 
 
 PRs without CodeRabbit data fall through to the two-pass agent flow.
 
-Log line: `[analyze] N PRs total — M sourced from CodeRabbit, K to analyze by agent`
+Log line: `[analyze] N PRs total — M sourced from CodeRabbit, K closed (skipped), L to analyze by agent (max 3 concurrent)`
 
 #### Two-Pass Agent Flow
 
 Each remaining PR is analyzed in **complete isolation** by its own Claude subagent (no context pollution between PRs). Two sequential passes run per PR:
 
-**Pass A — Branch Enumeration (60s timeout)**
+**Pass A — Branch Enumeration (90s timeout)**
 
 A short, constrained Claude call with a single job: list every new code branch introduced by the diff and what each test addition covers. No scoring, no recommendations, no commentary.
 
@@ -132,7 +132,7 @@ Output is structured JSON:
 
 This output is handed to Pass B as `PRE-COMPUTED BRANCH ENUMERATION (use this as your AUTHORITATIVE list)`. The constrained scope keeps Pass A resistant to the model's training prior that "if tests exist, coverage is fine" — it must enumerate granularly instead.
 
-**Pass B — Risk Scoring (90s timeout)**
+**Pass B — Risk Scoring (120s timeout)**
 
 The full risk-analyzer skill, fed with Pass A's branch list as pre-computed context. The agent scores 6 dimensions and derives a risk tier. The branch list anchors the coverage analysis step, preventing the scoring agent from collapsing fine-grained signals into coarse labels.
 
@@ -235,7 +235,7 @@ The risk criteria live in `.claude/agents/risk-analyzer.md` — a plain Markdown
 - **Max 14-day lookback** — prevents unbounded queries
 - **Days always defaults to 7** — can never be zero or negative
 - **Rate limit monitoring** — warns when GitHub rate limit is low
-- **Per-pass timeouts** — Pass A: 60s, Pass B: 90s per PR
+- **Per-pass timeouts** — Pass A: 90s, Pass B: 120s per PR
 - **Failure isolation** — one failed PR analysis doesn't block the rest; failures are marked UNKNOWN
 - **Pass A degrades gracefully** — if Pass A times out, Pass B still runs without the branch context
 - **CodeRabbit falls through** — if a PR has no parseable CodeRabbit data, the agent runs normally
