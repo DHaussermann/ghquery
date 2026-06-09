@@ -44,3 +44,11 @@ next-version-features.md
 # go.sum is intentionally tracked (reproducible builds)
 # Vendor directory if used
 vendor/
+
+# Terraform
+deploy/terraform/.terraform/
+deploy/terraform/.terraform.lock.hcl
+deploy/terraform/*.tfstate
+deploy/terraform/*.tfstate.*
+deploy/terraform/terraform.tfvars
+deploy/terraform/*.tfplan

@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+aws_region     = "us-east-1"
+key_name       = "your-ec2-keypair"   # an existing EC2 key pair name
+admin_ssh_cidr = "203.0.113.4/32"      # your IP as a /32 — the only public ingress
+
+# Optional:
+# subnet_id          = "subnet-0abc..."                       # default-VPC subnet used if unset
+# assign_eip         = true                                   # stable management IP
+# app_port           = 8080
+# tailscale_auth_key = "tskey-auth-..."                       # else run `tailscale up` via SSH
+# ghquery_binary_url = "https://.../ghquery-linux-amd64"      # else upload the binary manually
+# anthropic_model    = "claude-opus-4-8"

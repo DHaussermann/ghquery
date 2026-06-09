@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+# ── packages ──────────────────────────────────────────────────────────────
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y curl ca-certificates
+
+# ── service user + directories ──────────────────────────────────────────────
+# /opt/ghquery is the working directory — it must contain .claude/agents/
+# risk-analyzer.md (the Pass B prompt is read relative to CWD). Upload it
+# alongside the binary; see deploy/README.md.
+id ghquery >/dev/null 2>&1 || useradd --system --home /opt/ghquery --shell /usr/sbin/nologin ghquery
+mkdir -p /opt/ghquery/.claude/agents /etc/ghquery /var/lib/ghquery/schedules
+chown -R ghquery:ghquery /opt/ghquery /var/lib/ghquery
+chmod 700 /var/lib/ghquery
+
+# ── catalog (non-secret; edit after boot) ───────────────────────────────────
+if [ ! -f /etc/ghquery/catalog.yaml ]; then
+cat > /etc/ghquery/catalog.yaml <<'CATALOG'
+catalog:
+  repos:
+    - org/repo-name
+  teams:
+    QA:
+      - qa-github-handle
+    Engineering:
+      - eng-github-handle
+  author_names: {}
+CATALOG
+fi
+chmod 644 /etc/ghquery/catalog.yaml
+
+# ── environment / secrets (fill in after boot, then restart the service) ─────
+if [ ! -f /etc/ghquery/ghquery.env ]; then
+cat > /etc/ghquery/ghquery.env <<'ENVFILE'
+GHQUERY_HOSTED=1
+GHQUERY_CATALOG=/etc/ghquery/catalog.yaml
+GHQUERY_DATA=/var/lib/ghquery
+ANTHROPIC_MODEL=${anthropic_model}
+# Fill these in, then: sudo systemctl restart ghquery
+GITHUB_TOKEN=
+ANTHROPIC_API_KEY=
+ENVFILE
+fi
+chmod 600 /etc/ghquery/ghquery.env
+
+# ── Tailscale ────────────────────────────────────────────────────────────────
+curl -fsSL https://tailscale.com/install.sh | sh
+%{ if tailscale_authkey != "" ~}
+tailscale up --ssh --authkey='${tailscale_authkey}'
+%{ else ~}
+echo "Tailscale installed. Run 'sudo tailscale up --ssh' after boot to join the tailnet."
+%{ endif ~}
+
+# ── optional: fetch the binary at boot ───────────────────────────────────────
+%{ if binary_url != "" ~}
+curl -fsSL '${binary_url}' -o /usr/local/bin/ghquery
+chmod +x /usr/local/bin/ghquery
+%{ endif ~}
+
+# ── systemd service ──────────────────────────────────────────────────────────
+cat > /etc/systemd/system/ghquery.service <<'UNIT'
+[Unit]
+Description=ghquery hosted web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ghquery
+Group=ghquery
+WorkingDirectory=/opt/ghquery
+EnvironmentFile=/etc/ghquery/ghquery.env
+ExecStart=/usr/local/bin/ghquery ui --no-open --port ${app_port}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable ghquery
+
+# Start now only if the binary is already in place; otherwise it will start
+# on the next restart after you upload it.
+if [ -x /usr/local/bin/ghquery ]; then
+  systemctl restart ghquery || true
+fi
