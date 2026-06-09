@@ -18,21 +18,19 @@
 
 ## Prerequisites
 
-### 1. Claude Code CLI
+### 1. An analysis backend — Claude Code CLI *or* an Anthropic API key
 
-ghquery shells out to the local `claude` command for every PR analysis. Without it the tool can still fetch and list PRs, but all risk scores will return `UNKNOWN`.
+ghquery runs each PR analysis through one of two backends, chosen automatically:
 
-```bash
-npm install -g @anthropic-ai/claude-code
-```
+- **Anthropic API** — set `ANTHROPIC_API_KEY` in your environment and ghquery calls the API directly (no local install). Override the model with `ANTHROPIC_MODEL` (defaults to `claude-opus-4-8`). This is the backend used for hosted/server deployments.
+- **Claude Code CLI** — if `ANTHROPIC_API_KEY` is *not* set, ghquery shells out to the local `claude` command (uses your Pro/Max subscription, no per-call API billing):
 
-Requires Node.js 18 or later. Then authenticate once:
+  ```bash
+  npm install -g @anthropic-ai/claude-code   # Node.js 18+
+  claude                                      # authenticate once (OAuth)
+  ```
 
-```bash
-claude   # follow the OAuth prompts
-```
-
-Or set `ANTHROPIC_API_KEY` in your environment.
+Without either backend the tool can still fetch and list PRs, but all risk scores return `UNKNOWN`.
 
 **Verify:**
 ```bash

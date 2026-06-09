@@ -13,12 +13,15 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/DHaussermann/ghquery/internal/analysis"
+	"github.com/DHaussermann/ghquery/internal/config"
 	"github.com/DHaussermann/ghquery/internal/output"
 	"github.com/DHaussermann/ghquery/internal/pipeline"
+	"github.com/DHaussermann/ghquery/internal/schedule"
 )
 
 type handler struct {
 	shutdown chan struct{}
+	store    *schedule.Store // hosted mode only — per-UUID schedule records
 }
 
 func (h *handler) serveIndex(w http.ResponseWriter, r *http.Request) {
@@ -193,6 +196,7 @@ type saveResponse struct {
 }
 
 type webhookSaveRequest struct {
+	UID        string `json:"uid"`
 	WebhookURL string `json:"webhook_url"`
 }
 
@@ -202,6 +206,20 @@ func (h *handler) saveWebhook(w http.ResponseWriter, r *http.Request) {
 	var req webhookSaveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(saveResponse{OK: false, Error: "invalid JSON: " + err.Error()})
+		return
+	}
+
+	// Hosted mode: the webhook URL lives in the browser's localStorage. The
+	// only server-side copy that matters is on an existing schedule record, so
+	// keep that in sync if one exists; otherwise this is a no-op success.
+	if config.IsHosted() {
+		if err := h.upsertRecord(req.UID, func(rec *schedule.Record) {
+			rec.WebhookURL = req.WebhookURL
+		}, false); err != nil {
+			json.NewEncoder(w).Encode(saveResponse{OK: false, Error: err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(saveResponse{OK: true})
 		return
 	}
 
@@ -215,11 +233,14 @@ func (h *handler) saveWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 type querySaveRequest struct {
-	Repos        []string `json:"repos"`
-	Authors      []string `json:"authors"`
-	Days         int      `json:"days"`
-	Mode         string   `json:"mode"`
-	SkipAnalysis bool     `json:"skip_analysis"`
+	UID           string   `json:"uid"`
+	Repos         []string `json:"repos"`
+	Authors       []string `json:"authors"`
+	Days          int      `json:"days"`
+	Mode          string   `json:"mode"`
+	SkipAnalysis  bool     `json:"skip_analysis"`
+	UseCodeRabbit bool     `json:"use_coderabbit"`
+	WebhookURL    string   `json:"webhook_url"`
 }
 
 func (h *handler) saveQuery(w http.ResponseWriter, r *http.Request) {
@@ -228,6 +249,27 @@ func (h *handler) saveQuery(w http.ResponseWriter, r *http.Request) {
 	var req querySaveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(saveResponse{OK: false, Error: "invalid JSON: " + err.Error()})
+		return
+	}
+
+	// Hosted mode: "Save as recurring query" writes the recipe into the
+	// per-UUID schedule record (the browser also keeps it in localStorage).
+	// Timing/enabled fields are preserved; this only sets the recipe portion.
+	if config.IsHosted() {
+		authors := pipeline.ResolveAuthors(req.Authors, viper.GetStringMap("catalog.teams"), io.Discard)
+		if err := h.upsertRecord(req.UID, func(rec *schedule.Record) {
+			rec.Repos = req.Repos
+			rec.Authors = authors
+			rec.Days = req.Days
+			rec.Mode = req.Mode
+			rec.SkipAnalysis = req.SkipAnalysis
+			rec.UseCodeRabbit = req.UseCodeRabbit
+			rec.WebhookURL = req.WebhookURL
+		}, true); err != nil {
+			json.NewEncoder(w).Encode(saveResponse{OK: false, Error: err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(saveResponse{OK: true})
 		return
 	}
 
@@ -257,6 +299,28 @@ func (h *handler) saveQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(saveResponse{OK: true})
+}
+
+// upsertRecord loads the schedule record for uid (or starts a fresh one),
+// applies mutate, and saves it. When createIfMissing is false and no record
+// exists, it is a no-op success — used by webhook saves that should only touch
+// an already-scheduled record. Hosted mode only.
+func (h *handler) upsertRecord(uid string, mutate func(*schedule.Record), createIfMissing bool) error {
+	if h.store == nil {
+		return fmt.Errorf("schedule store unavailable")
+	}
+	rec, err := h.store.Load(uid)
+	if err != nil {
+		return err
+	}
+	if rec == nil {
+		if !createIfMissing {
+			return nil
+		}
+		rec = &schedule.Record{UUID: uid}
+	}
+	mutate(rec)
+	return h.store.Save(rec)
 }
 
 func (h *handler) exit(w http.ResponseWriter, r *http.Request) {

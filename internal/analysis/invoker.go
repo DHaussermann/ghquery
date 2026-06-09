@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropics/anthropic-sdk-go"
+
 	gh "github.com/DHaussermann/ghquery/internal/github"
 )
 
@@ -32,6 +34,113 @@ func SetClaudePath(path string) {
 	if path != "" {
 		claudeBin = path
 	}
+}
+
+// defaultModel is the Anthropic model the API backend uses. Override per-run
+// with the ANTHROPIC_MODEL environment variable.
+const defaultModel = "claude-opus-4-8"
+
+// apiClient is the lazily-initialized Anthropic API client. anthropic.NewClient
+// reads ANTHROPIC_API_KEY from the environment.
+var (
+	apiClient     anthropic.Client
+	apiClientOnce sync.Once
+)
+
+func getAPIClient() anthropic.Client {
+	apiClientOnce.Do(func() { apiClient = anthropic.NewClient() })
+	return apiClient
+}
+
+// useAPIBackend reports whether to call the Anthropic API directly instead of
+// shelling out to the local `claude` CLI. The API backend is selected whenever
+// ANTHROPIC_API_KEY is present (hosted mode, or any local user who sets it);
+// otherwise the CLI backend is used (local Pro/Max subscription, no API key).
+func useAPIBackend() bool {
+	return os.Getenv("ANTHROPIC_API_KEY") != ""
+}
+
+// anthropicModel returns the configured model ID, defaulting to defaultModel.
+func anthropicModel() string {
+	if m := strings.TrimSpace(os.Getenv("ANTHROPIC_MODEL")); m != "" {
+		return m
+	}
+	return defaultModel
+}
+
+// runInference sends a stable system prompt and a per-PR user message to the
+// configured backend and returns the model's raw text output. The system
+// prompt is identical across every PR in a run, so the API backend marks it for
+// prompt caching — after the first PR the others read it from cache (~0.1x cost).
+//
+// Both backends return raw text; parseBranchEnumeration / parsePRResult already
+// extract the JSON object whether it arrives bare (API) or wrapped in the CLI's
+// {"result": ...} envelope.
+func runInference(ctx context.Context, system, user string, timeout time.Duration, label string, log io.Writer) (string, error) {
+	if useAPIBackend() {
+		return runAnthropicAPI(ctx, system, user, timeout, label, log)
+	}
+	return runClaudeCLI(ctx, system, user, timeout, label)
+}
+
+func runAnthropicAPI(ctx context.Context, system, user string, timeout time.Duration, label string, log io.Writer) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	client := getAPIClient()
+	msg, err := client.Messages.New(cctx, anthropic.MessageNewParams{
+		Model:     anthropic.Model(anthropicModel()),
+		MaxTokens: 4096,
+		System: []anthropic.TextBlockParam{{
+			Text:         system,
+			CacheControl: anthropic.NewCacheControlEphemeralParam(),
+		}},
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(user)),
+		},
+	})
+	if err != nil {
+		if cctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("%s timed out after %v", label, timeout)
+		}
+		return "", fmt.Errorf("%s anthropic API: %w", label, err)
+	}
+
+	if log != nil {
+		fmt.Fprintf(log, "%s — tokens: input=%d cache_read=%d output=%d\n",
+			label, msg.Usage.InputTokens, msg.Usage.CacheReadInputTokens, msg.Usage.OutputTokens)
+	}
+
+	var sb strings.Builder
+	for _, block := range msg.Content {
+		if t, ok := block.AsAny().(anthropic.TextBlock); ok {
+			sb.WriteString(t.Text)
+		}
+	}
+	return sb.String(), nil
+}
+
+func runClaudeCLI(ctx context.Context, system, user string, timeout time.Duration, label string) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// The CLI takes one combined prompt on stdin; recombine system + user so
+	// behavior is byte-identical to the pre-retrofit single-prompt path.
+	prompt := system + "\n\n" + user
+	cmd := exec.CommandContext(cctx, claudeBin, "-p", "--output-format", "json")
+	cmd.Stdin = strings.NewReader(prompt)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if cctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("%s timed out after %v", label, timeout)
+		}
+		return "", fmt.Errorf("%s claude CLI: %w\nstderr: %s", label, err, truncate(stderr.String(), 200))
+	}
+	return stdout.String(), nil
 }
 
 // passAPrompt is the constrained enumeration prompt — Pass A's only job is
@@ -75,15 +184,15 @@ func Analyze(ctx context.Context, prs []gh.PRData, log io.Writer) (*RiskReport, 
 		return nil, err
 	}
 
-	// Pre-flight: verify `claude` is on PATH before spawning agents.
-	// If not, surface a single clear error at the top of the log so the user
-	// notices immediately instead of seeing N identical per-agent failures.
-	if claudePath, err := exec.LookPath(claudeBin); err != nil {
-		fmt.Fprintf(log, "[ERROR] claude CLI not found on PATH — risk analysis will FAIL for all %d PRs\n", len(prs))
-		fmt.Fprintf(log, "[ERROR] Install: npm install -g @anthropic-ai/claude-code\n")
-		fmt.Fprintf(log, "[ERROR] If running via launchd/cron, ensure `ghquery schedule install` was run from a shell where `which claude` works\n")
+	// Pre-flight: confirm a working backend before spawning agents, so the user
+	// sees a single clear line instead of N identical per-agent failures.
+	if useAPIBackend() {
+		fmt.Fprintf(log, "[analyze] Using Anthropic API (model %s)\n", anthropicModel())
+	} else if claudePath, err := exec.LookPath(claudeBin); err != nil {
+		fmt.Fprintf(log, "[ERROR] No backend available — ANTHROPIC_API_KEY is not set and the claude CLI is not on PATH; risk analysis will FAIL for all %d PRs\n", len(prs))
+		fmt.Fprintf(log, "[ERROR] Either set ANTHROPIC_API_KEY to use the API, or install the CLI: npm install -g @anthropic-ai/claude-code\n")
 	} else {
-		fmt.Fprintf(log, "[analyze] claude found at %s\n", claudePath)
+		fmt.Fprintf(log, "[analyze] Using claude CLI at %s\n", claudePath)
 	}
 
 	// Partition PRs by source. CodeRabbit-sourced rows and closed (never-merged)
@@ -181,7 +290,7 @@ func analyzeSinglePR(ctx context.Context, agentPrompt string, pr gh.PRData, log 
 	// gracefully — Pass B runs without the pre-computed branch context.
 	branchContext := ""
 	passAStart := time.Now()
-	enum, enumErr := enumerateBranches(ctx, pr)
+	enum, enumErr := enumerateBranches(ctx, pr, fmt.Sprintf("[agent:%s] %s pass A", agent, prLabel), log)
 	passAElapsed := time.Since(passAStart).Round(time.Second)
 	if enumErr != nil {
 		fmt.Fprintf(log, "[agent:%s] %s — pass A FAILED after %v (continuing without enumeration): %v\n", agent, prLabel, passAElapsed, enumErr)
@@ -193,59 +302,35 @@ func analyzeSinglePR(ctx context.Context, agentPrompt string, pr gh.PRData, log 
 
 	// Pass B: score the PR. The branchContext (if Pass A succeeded) anchors
 	// the scoring agent's enumeration step on a concrete pre-computed list.
+	// The agent prompt is the stable system prompt (cached); the per-PR
+	// instruction + branch context + diff are the user message.
 	inputJSON, err := json.Marshal(pr)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling PR: %w", err)
 	}
 
-	prompt := fmt.Sprintf("%s\n\nAnalyze the following single pull request and return ONLY a JSON object with these fields: risk_level, risk_score, dimensions, risk_reason, areas_affected, qa_recommendations, test_approach. No markdown fences, no preamble.%s\n\n%s", agentPrompt, branchContext, string(inputJSON))
+	user := fmt.Sprintf("Analyze the following single pull request and return ONLY a JSON object with these fields: risk_level, risk_score, dimensions, risk_reason, areas_affected, qa_recommendations, test_approach. No markdown fences, no preamble.%s\n\n%s", branchContext, string(inputJSON))
 
-	passBCtx, cancel := context.WithTimeout(ctx, passBTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(passBCtx, claudeBin, "-p", "--output-format", "json")
-	cmd.Stdin = strings.NewReader(prompt)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		if passBCtx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("pass B timed out after %v", passBTimeout)
-		}
-		return nil, fmt.Errorf("pass B claude CLI: %w\nstderr: %s", err, truncate(stderr.String(), 200))
+	out, err := runInference(ctx, agentPrompt, user, passBTimeout, fmt.Sprintf("[agent:%s] %s pass B", agent, prLabel), log)
+	if err != nil {
+		return nil, err
 	}
 
-	return parsePRResult(stdout.Bytes())
+	return parsePRResult([]byte(out))
 }
 
-func enumerateBranches(ctx context.Context, pr gh.PRData) (*BranchEnumeration, error) {
+func enumerateBranches(ctx context.Context, pr gh.PRData, label string, log io.Writer) (*BranchEnumeration, error) {
 	inputJSON, err := json.Marshal(pr)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling PR: %w", err)
 	}
 
-	prompt := fmt.Sprintf("%s\n\n%s", passAPrompt, string(inputJSON))
-
-	passACtx, cancel := context.WithTimeout(ctx, passATimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(passACtx, claudeBin, "-p", "--output-format", "json")
-	cmd.Stdin = strings.NewReader(prompt)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		if passACtx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("pass A timed out after %v", passATimeout)
-		}
-		return nil, fmt.Errorf("pass A claude CLI: %w\nstderr: %s", err, truncate(stderr.String(), 200))
+	out, err := runInference(ctx, passAPrompt, string(inputJSON), passATimeout, label, log)
+	if err != nil {
+		return nil, err
 	}
 
-	return parseBranchEnumeration(stdout.Bytes())
+	return parseBranchEnumeration([]byte(out))
 }
 
 func parseBranchEnumeration(raw []byte) (*BranchEnumeration, error) {

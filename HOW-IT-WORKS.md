@@ -220,6 +220,35 @@ webhook_url:  "https://..."
 
 ---
 
+## Running modes — local and hosted
+
+ghquery runs in one of two modes from a single codebase. Mode is detected once at startup from the `GHQUERY_HOSTED` environment variable. Full design detail is in [`HOSTED-MODE-DESIGN.md`](HOSTED-MODE-DESIGN.md).
+
+### Local mode (default)
+
+The behavior described everywhere else in this document. Everything comes from `config.yaml`: catalog, secrets, the saved query, and the schedule. Per-user preferences are written back to `config.yaml`, and scheduling is delegated to the OS scheduler (launchd / cron / Task Scheduler).
+
+### Hosted mode (`GHQUERY_HOSTED=1`)
+
+For running one shared instance that a team uses from their browsers, with no database. Configuration splits in two:
+
+- **Global, admin-managed** — the catalog (repos, teams, author names) is read from a read-only mounted file (`GHQUERY_CATALOG`, default `/etc/ghquery/catalog.yaml`). Secrets (`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`) arrive as environment variables — never written to disk. `viper.AutomaticEnv()` picks them up with no parsing.
+- **Per-user** — the query recipe, webhook URL, and schedule timing live in the browser's **localStorage**, keyed nowhere on the server for on-demand runs. `/api/run` is already stateless: the browser posts the full recipe in the request body.
+
+The one exception is scheduling. A scheduled job fires while the browser is closed, so the server must hold a copy of the recipe. On Save, the browser sends its recipe plus a generated UUID (`ghquery_uid` in localStorage) to the server, which stores one flat JSON file per UUID under `GHQUERY_DATA/schedules/`. An in-process runner ticks on a timer, evaluates each enabled record against its stored IANA timezone, and on a match runs `pipeline.Execute()` and delivers to the record's stored webhook URL. This replaces the OS scheduler entirely — and, unlike the OS path, honors the per-record timezone.
+
+First-visit defaults in the browser: all repos checked, no teams or authors checked.
+
+| Concern | Local mode | Hosted mode |
+|---|---|---|
+| Catalog | `config.yaml` | read-only mounted `catalog.yaml` |
+| Secrets | `config.yaml` or env | env vars (Secrets Manager) |
+| Saved per-user prefs | `config.yaml` | browser localStorage |
+| Scheduling | OS scheduler | in-process runner + flat JSON store |
+| User identity | n/a (single user) | per-browser UUID (until login) |
+
+---
+
 ## Tuning the Risk Analysis
 
 The risk criteria live in `.claude/agents/risk-analyzer.md` — a plain Markdown file editable without recompilation. Key sections:

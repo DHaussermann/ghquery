@@ -3,9 +3,12 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/DHaussermann/ghquery/internal/config"
 )
 
 var rootCmd = &cobra.Command{
@@ -34,10 +37,29 @@ func init() {
 }
 
 func initConfig() {
+	// AutomaticEnv lets any key be overridden by an environment variable. The
+	// replacer maps nested keys (catalog.teams) and bare keys (github_token)
+	// to their env-var forms (CATALOG_TEAMS, GITHUB_TOKEN). In hosted mode this
+	// is how secrets (GITHUB_TOKEN, ANTHROPIC_API_KEY) arrive — never on disk.
+	viper.AutomaticEnv()
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+
+	if config.IsHosted() {
+		// Hosted mode: read the global catalog from a read-only mounted file.
+		// Per-user preferences live in the browser, not here, so there is no
+		// config.yaml to read or write.
+		catalogPath := config.CatalogPath()
+		viper.SetConfigFile(catalogPath)
+		viper.SetConfigType("yaml")
+		if err := viper.ReadInConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: hosted mode could not read catalog %q: %v\n", catalogPath, err)
+		}
+		return
+	}
+
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
-	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

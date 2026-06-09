@@ -2171,9 +2171,65 @@
     }
 
     // Load config on startup
+    // ── Hosted-mode browser preferences (localStorage) ───────────────
+    // In hosted mode per-user preferences live in the browser, not config.yaml.
+    // ghquery_uid is a per-browser identity (used to key the server-side
+    // schedule record); ghquery_prefs holds the saved recurring recipe.
+    function ghqUID() {
+        let id = localStorage.getItem('ghquery_uid');
+        if (!id) {
+            id = (window.crypto && crypto.randomUUID)
+                ? crypto.randomUUID()
+                : 'uid-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+            localStorage.setItem('ghquery_uid', id);
+        }
+        return id;
+    }
+    function ghqLoadPrefs() {
+        try { return JSON.parse(localStorage.getItem('ghquery_prefs') || 'null'); }
+        catch (e) { return null; }
+    }
+    function ghqSavePrefs(recipe) {
+        localStorage.setItem('ghquery_prefs', JSON.stringify(recipe));
+    }
+    // ghqCurrentRecipe reads the full query recipe out of the form. Used by the
+    // Save action and schedule enable so the saved/scheduled recipe is complete.
+    function ghqCurrentRecipe() {
+        return {
+            repos: getCheckedValues('repos-list'),
+            authors: [...new Set(getCheckedValues('authors-list'))],
+            days: parseInt(document.getElementById('days').value) || 7,
+            mode: getMode(),
+            skip_analysis: document.getElementById('skip-analysis').checked,
+            use_coderabbit: document.getElementById('use-coderabbit').checked,
+            webhook_url: document.getElementById('webhook-url').value.trim()
+        };
+    }
+
     async function loadConfig() {
         const resp = await fetch('/api/config');
         const config = await resp.json();
+
+        // Hosted mode: synthesize config.query / webhook_url from localStorage so
+        // the rest of loadConfig hydrates the form exactly as in local mode.
+        // First visit (no prefs): config.query stays empty → all repos checked,
+        // no teams/authors checked (the intended default).
+        window._hosted = !!config.hosted;
+        if (config.hosted) {
+            window._uid = ghqUID();
+            const prefs = ghqLoadPrefs();
+            if (prefs) {
+                config.query = {
+                    repos: prefs.repos || [],
+                    authors: prefs.authors || [],
+                    days: prefs.days || 7,
+                    mode: prefs.mode || 'all',
+                    skip_analysis: !!prefs.skip_analysis
+                };
+                config.webhook_url = prefs.webhook_url || '';
+                window._prefsUseCodeRabbit = !!prefs.use_coderabbit;
+            }
+        }
 
         // Populate repos — pre-check based on saved query (fall back to all selected if no saved query)
         const reposList = document.getElementById('repos-list');
@@ -2296,6 +2352,10 @@
             if (label) label.classList.toggle('is-disabled', disabled);
         }
         if (skipAnalysisCb) skipAnalysisCb.addEventListener('change', syncCodeRabbitDisabled);
+        // Hosted mode: restore the Use CodeRabbit toggle from saved prefs.
+        if (window._hosted && window._prefsUseCodeRabbit && useCodeRabbitCb) {
+            useCodeRabbitCb.checked = true;
+        }
         syncCodeRabbitDisabled();
 
         document.getElementById('webhook-url').value = config.webhook_url || '';
@@ -2599,11 +2659,21 @@
             const currentInConfig = (window._config && window._config.webhook_url) || '';
             if (newURL === currentInConfig) return; // no diff, skip save
 
+            // Hosted mode: keep localStorage prefs coherent and send the uid so an
+            // already-scheduled record's delivery target stays in sync.
+            let body = {webhook_url: newURL};
+            if (window._hosted) {
+                const prefs = ghqLoadPrefs() || {};
+                prefs.webhook_url = newURL;
+                ghqSavePrefs(prefs);
+                body = {uid: window._uid, webhook_url: newURL};
+            }
+
             try {
                 const resp = await fetch('/api/config/webhook', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({webhook_url: newURL})
+                    body: JSON.stringify(body)
                 });
                 const result = await resp.json();
                 if (result.ok) {
@@ -2622,17 +2692,16 @@
     const btnSaveQuery = document.getElementById('btn-save-query');
     if (btnSaveQuery) {
         btnSaveQuery.addEventListener('click', async () => {
-            // Gather sidebar state — use ONLY the authors checkbox state.
-            // (Team checks auto-check members; manual unchecks override.)
-            const authorsChecked = [...new Set(getCheckedValues('authors-list'))];
-
-            const body = {
-                repos: getCheckedValues('repos-list'),
-                authors: authorsChecked,
-                days: parseInt(document.getElementById('days').value) || 7,
-                mode: getMode(),
-                skip_analysis: document.getElementById('skip-analysis').checked
-            };
+            // Gather the full recipe from the form. In hosted mode this is also
+            // written to localStorage so it greets the user next visit, and the
+            // uid + webhook + use_coderabbit ride along to the server record.
+            // (Local mode ignores the extra fields.)
+            const recipe = ghqCurrentRecipe();
+            const body = Object.assign({}, recipe);
+            if (window._hosted) {
+                body.uid = window._uid;
+                ghqSavePrefs(recipe);
+            }
 
             btnSaveQuery.disabled = true;
             btnSaveQuery.textContent = 'Saving...';
@@ -3166,7 +3235,10 @@
 
     async function refreshScheduleState() {
         try {
-            const resp = await fetch('/api/schedule');
+            const url = window._hosted
+                ? '/api/schedule?uid=' + encodeURIComponent(window._uid)
+                : '/api/schedule';
+            const resp = await fetch(url);
             const state = await resp.json();
             applyScheduleState(state);
         } catch (err) {
@@ -3210,6 +3282,15 @@
             weekday: scheduleFreq.value === 'weekly' ? scheduleDay.value : '',
             tz: Intl.DateTimeFormat().resolvedOptions().timeZone || ''
         };
+        // Hosted mode: the schedule record is self-contained — carry the uid and
+        // the full recipe so the in-process runner can fire it standalone, and
+        // mirror the recipe into localStorage.
+        if (window._hosted) {
+            const recipe = ghqCurrentRecipe();
+            Object.assign(body, recipe);
+            body.uid = window._uid;
+            ghqSavePrefs(recipe);
+        }
 
         scheduleSave.disabled = true;
         scheduleSave.textContent = 'Installing...';
@@ -3242,7 +3323,11 @@
         scheduleDisable.disabled = true;
         scheduleSave.disabled = true;
         try {
-            const resp = await fetch('/api/schedule/disable', {method: 'POST'});
+            const resp = await fetch('/api/schedule/disable', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(window._hosted ? {uid: window._uid} : {})
+            });
             const result = await resp.json();
             if (!result.ok) {
                 scheduleError.hidden = false;

@@ -3,12 +3,15 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/spf13/viper"
 
+	"github.com/DHaussermann/ghquery/internal/config"
+	"github.com/DHaussermann/ghquery/internal/pipeline"
 	"github.com/DHaussermann/ghquery/internal/schedule"
 )
 
@@ -28,11 +31,23 @@ type scheduleStatusOutput struct {
 }
 
 // scheduleEnableRequest is the JSON body for POST /api/schedule/enable.
+// In hosted mode it also carries the UUID and the full recipe so the schedule
+// record is self-contained even if the user never clicked "save recurring query".
 type scheduleEnableRequest struct {
 	Time      string `json:"time"`
 	Frequency string `json:"frequency"`
 	Weekday   string `json:"weekday"`
 	TZ        string `json:"tz"`
+
+	// Hosted mode only.
+	UID           string   `json:"uid"`
+	Repos         []string `json:"repos"`
+	Authors       []string `json:"authors"`
+	Days          int      `json:"days"`
+	Mode          string   `json:"mode"`
+	SkipAnalysis  bool     `json:"skip_analysis"`
+	UseCodeRabbit bool     `json:"use_coderabbit"`
+	WebhookURL    string   `json:"webhook_url"`
 }
 
 type scheduleEnableResponse struct {
@@ -41,6 +56,15 @@ type scheduleEnableResponse struct {
 }
 
 func (h *handler) getSchedule(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Hosted mode: read this user's record from the flat store, keyed by the
+	// uid query param. No OS scheduler involved.
+	if config.IsHosted() {
+		h.getScheduleHosted(w, r)
+		return
+	}
+
 	scheduler := schedule.NewScheduler()
 	st, err := scheduler.Status()
 	if err != nil {
@@ -66,7 +90,29 @@ func (h *handler) getSchedule(w http.ResponseWriter, r *http.Request) {
 		resp.Time = "08:00"
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// getScheduleHosted returns the stored schedule record for the uid query param.
+func (h *handler) getScheduleHosted(w http.ResponseWriter, r *http.Request) {
+	rec, err := h.store.Load(r.URL.Query().Get("uid"))
+	if err != nil {
+		writeScheduleError(w, err.Error())
+		return
+	}
+	resp := scheduleStateResponse{Frequency: "daily", Time: "08:00"}
+	if rec != nil {
+		resp.Enabled = rec.Enabled
+		if rec.Time != "" {
+			resp.Time = rec.Time
+		}
+		if rec.Frequency != "" {
+			resp.Frequency = rec.Frequency
+		}
+		resp.Weekday = rec.Weekday
+		resp.TZ = rec.TZ
+		resp.Status = scheduleStatusOutput{Installed: rec.Enabled, Detail: "in-process scheduler"}
+	}
 	json.NewEncoder(w).Encode(resp)
 }
 
@@ -85,6 +131,13 @@ func (h *handler) enableSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Frequency == "" {
 		req.Frequency = "daily"
+	}
+
+	// Hosted mode: write the timing (and any provided recipe) into the per-UUID
+	// record and enable it. The in-process runner picks it up — no OS scheduler.
+	if config.IsHosted() {
+		h.enableScheduleHosted(w, req)
+		return
 	}
 
 	// Build the Schedule struct
@@ -118,8 +171,60 @@ func (h *handler) enableSchedule(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(scheduleEnableResponse{OK: true})
 }
 
+// enableScheduleHosted writes timing + recipe into the per-UUID record and
+// enables it. Recipe fields are only overwritten when provided, so enabling
+// after a separate "save recurring query" preserves the saved recipe.
+func (h *handler) enableScheduleHosted(w http.ResponseWriter, req scheduleEnableRequest) {
+	authors := pipeline.ResolveAuthors(req.Authors, viper.GetStringMap("catalog.teams"), io.Discard)
+	err := h.upsertRecord(req.UID, func(rec *schedule.Record) {
+		rec.Time = req.Time
+		rec.Frequency = req.Frequency
+		rec.Weekday = req.Weekday
+		rec.TZ = req.TZ
+		rec.Enabled = true
+		if len(req.Repos) > 0 {
+			rec.Repos = req.Repos
+		}
+		if len(authors) > 0 {
+			rec.Authors = authors
+		}
+		if req.Days > 0 {
+			rec.Days = req.Days
+		}
+		if req.Mode != "" {
+			rec.Mode = req.Mode
+		}
+		rec.SkipAnalysis = req.SkipAnalysis
+		rec.UseCodeRabbit = req.UseCodeRabbit
+		if req.WebhookURL != "" {
+			rec.WebhookURL = req.WebhookURL
+		}
+	}, true)
+	if err != nil {
+		writeScheduleError(w, err.Error())
+		return
+	}
+	json.NewEncoder(w).Encode(scheduleEnableResponse{OK: true})
+}
+
 func (h *handler) disableSchedule(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	// Hosted mode: flip enabled=false on the per-UUID record.
+	if config.IsHosted() {
+		var req struct {
+			UID string `json:"uid"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := h.upsertRecord(req.UID, func(rec *schedule.Record) {
+			rec.Enabled = false
+		}, false); err != nil {
+			writeScheduleError(w, err.Error())
+			return
+		}
+		json.NewEncoder(w).Encode(scheduleEnableResponse{OK: true})
+		return
+	}
 
 	scheduler := schedule.NewScheduler()
 	if err := scheduler.Remove(); err != nil {

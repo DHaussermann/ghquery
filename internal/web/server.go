@@ -7,6 +7,9 @@ import (
 	"os"
 
 	"github.com/spf13/viper"
+
+	"github.com/DHaussermann/ghquery/internal/config"
+	"github.com/DHaussermann/ghquery/internal/schedule"
 )
 
 //go:embed static/index.html
@@ -16,6 +19,19 @@ var staticFS embed.FS
 func StartServer(port int, shutdown chan struct{}) error {
 	h := &handler{
 		shutdown: shutdown,
+	}
+
+	// Hosted mode: per-user schedules live in a flat-file store and are fired
+	// by an in-process runner instead of the OS scheduler. Open the store and
+	// start the runner; it stops when the server shuts down.
+	if config.IsHosted() {
+		store, err := schedule.NewStore(config.ScheduleDir())
+		if err != nil {
+			return fmt.Errorf("opening schedule store: %w", err)
+		}
+		h.store = store
+		go schedule.NewRunner(store, os.Stderr).Start(shutdown)
+		fmt.Fprintf(os.Stderr, "[ui] Hosted mode — catalog from %s, schedules in %s\n", config.CatalogPath(), config.ScheduleDir())
 	}
 
 	mux := http.NewServeMux()
@@ -50,6 +66,7 @@ func StartServer(port int, shutdown chan struct{}) error {
 
 // ConfigResponse is the JSON returned by /api/config
 type ConfigResponse struct {
+	Hosted      bool                `json:"hosted"`       // true in hosted mode — client uses localStorage for per-user prefs
 	Repos       []string            `json:"repos"`        // catalog
 	Teams       map[string][]string `json:"teams"`        // catalog
 	AuthorNames map[string]string   `json:"author_names"` // catalog
@@ -89,18 +106,28 @@ func buildConfigResponse() ConfigResponse {
 		authorNames[handle] = name
 	}
 
-	return ConfigResponse{
+	resp := ConfigResponse{
 		Repos:       viper.GetStringSlice("catalog.repos"),
 		Teams:       teamsClean,
 		AuthorNames: authorNames,
-		WebhookURL:  viper.GetString("webhook_url"),
-		Days:        viper.GetInt("query.days"),
-		Query: SavedQuery{
-			Repos:        viper.GetStringSlice("query.repos"),
-			Authors:      viper.GetStringSlice("query.authors"),
-			Days:         viper.GetInt("query.days"),
-			Mode:         viper.GetString("query.mode"),
-			SkipAnalysis: viper.GetBool("query.skip_analysis"),
-		},
 	}
+
+	// Hosted mode: per-user preferences (webhook URL, saved query) live in the
+	// browser's localStorage, not server-side. Return the catalog only; the
+	// client hydrates the form from localStorage.
+	if config.IsHosted() {
+		resp.Hosted = true
+		return resp
+	}
+
+	resp.WebhookURL = viper.GetString("webhook_url")
+	resp.Days = viper.GetInt("query.days")
+	resp.Query = SavedQuery{
+		Repos:        viper.GetStringSlice("query.repos"),
+		Authors:      viper.GetStringSlice("query.authors"),
+		Days:         viper.GetInt("query.days"),
+		Mode:         viper.GetString("query.mode"),
+		SkipAnalysis: viper.GetBool("query.skip_analysis"),
+	}
+	return resp
 }
